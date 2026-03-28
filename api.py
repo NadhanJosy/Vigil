@@ -1,6 +1,6 @@
 import os
 from data import run_detection
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, send_from_directory
 from database import init_db, get_all_alerts
 
 app = Flask(__name__)
@@ -24,7 +24,7 @@ def alerts():
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return send_from_directory("templates", "index.html")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
