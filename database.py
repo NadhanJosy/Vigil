@@ -11,7 +11,8 @@ def init_db():
             date TEXT,
             volume_ratio REAL,
             change_pct REAL,
-            signal_type TEXT
+            signal_type TEXT,
+            state TEXT
         )
     """)
     
@@ -19,7 +20,7 @@ def init_db():
     conn.close()
 
 init_db()
-def save_alert(ticker, date, volume_ratio, change_pct, signal_type):
+def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
     conn = sqlite3.connect("vigil.db")
     cursor = conn.cursor()
     
@@ -31,9 +32,9 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type):
     
     if not existing:
         cursor.execute("""
-            INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type)
-            VALUES (?, ?, ?, ?, ?)
-        """, (ticker, str(date), volume_ratio, change_pct, signal_type))
+            INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (ticker, str(date), volume_ratio, change_pct, signal_type, state))
         conn.commit()
     
     conn.close()
