@@ -1,4 +1,5 @@
 import os
+from data import run_detection
 from flask import Flask, jsonify, render_template
 from database import init_db, get_all_alerts
 
@@ -28,3 +29,8 @@ def index():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(debug=False, host="0.0.0.0", port=port)
+
+@app.route("/trigger")
+def trigger():
+    run_detection()
+    return jsonify({"status": "detection complete"})
