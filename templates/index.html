@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Vigil</title>
+    <style>
+        body { background: #020912; color: #c0cfe4; font-family: monospace; padding: 40px; }
+        h1 { font-weight: 300; margin-bottom: 30px; }
+        .alert { border: 1px solid #0a1628; padding: 16px; margin-bottom: 10px; border-radius: 6px; }
+        .ticker { font-size: 18px; margin-bottom: 6px; }
+        .up { color: #22c55e; }
+        .down { color: #dc2626; }
+        .meta { color: #475569; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h1>Vigil</h1>
+    <div id="alerts"></div>
+
+    <script>
+        fetch("/alerts")
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById("alerts");
+                data.forEach(alert => {
+                    const isUp = alert.signal_type === "VOLUME_SPIKE_UP";
+                    container.innerHTML += `
+                        <div class="alert">
+                            <div class="ticker ${isUp ? "up" : "down"}">
+                                ${alert.ticker} — ${isUp ? "▲" : "▼"} ${alert.change_pct}%
+                            </div>
+                            <div class="meta">
+                                ${alert.date} · Volume ${alert.volume_ratio}x · ${alert.signal_type}
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+    </script>
+</body>
+</html>
