@@ -14,6 +14,7 @@ def run_detection():
             
             date = history.index[-1].date()
             today_volume = history["Volume"].iloc[-1]
+
             ratio = today_volume / average_volume
             
             open_price = history["Open"].iloc[-1]
