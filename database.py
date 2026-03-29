@@ -69,3 +69,35 @@ def get_all_alerts():
     
     conn.close()
     return rows
+
+def init_db():
+    conn = get_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS alerts (
+            id SERIAL PRIMARY KEY,
+            ticker TEXT,
+            date TEXT,
+            volume_ratio REAL,
+            change_pct REAL,
+            signal_type TEXT,
+            state TEXT
+        )
+    """)
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS outcomes (
+            id SERIAL PRIMARY KEY,
+            alert_id INTEGER REFERENCES alerts(id),
+            ticker TEXT,
+            signal_date TEXT,
+            outcome_date TEXT,
+            price_change_pct REAL,
+            result TEXT
+        )
+    """)
+    
+    conn.commit()
+    conn.close()
+    print("Database ready")
