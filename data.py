@@ -1,6 +1,13 @@
 import numpy as np
 import yfinance as yf
-from database import save_alert, init_db, get_recent_alert_for_ticker
+import logging
+import json
+import os
+import urllib.request
+from database import save_alert, init_db, get_recent_alert_for_ticker, get_watchlist, get_latest_regime
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # ─── STATE ───────────────────────────────────────────────────────────────────
 
@@ -119,41 +126,61 @@ def assess_trap(history, signal_type, volume_ratio, state):
         return None, None, []
     reasons = []
     penalty = 0.0
-    if volume_ratio < 1.2:
-        reasons.append(f"Volume {volume_ratio:.1f}x avg — well below confirmation threshold")
-        penalty += 1.5
-    elif volume_ratio < 1.5:
-        reasons.append(f"Volume {volume_ratio:.1f}x avg — marginally above average, not convincing")
-        penalty += 0.8
-    high_30d     = float(history["High"].max())
-    lookback     = history.iloc[:-5]
-    prior_touches = sum(
-        1 for i in range(len(lookback))
-        if abs(float(lookback["High"].iloc[i]) - high_30d) / high_30d < 0.005
-    )
-    if prior_touches >= 3:
-        reasons.append(f"Level tested {prior_touches} times previously — well-known resistance")
+
+    # 1. Local Volume Confirmation (Relative to 20-day mean)
+    vol_20 = history["Volume"].iloc[-21:-1].mean()
+    local_ratio = float(history["Volume"].iloc[-1]) / vol_20 if vol_20 > 0 else volume_ratio
+    if local_ratio < 1.3:
+        reasons.append(f"Volume spike ({local_ratio:.1f}x 20d avg) lacks local conviction")
         penalty += 1.2
-    elif prior_touches >= 2:
-        reasons.append(f"Level tested {prior_touches} times previously — some prior resistance")
-        penalty += 0.6
-    today        = history.iloc[-1]
-    candle_range = float(today["High"]) - float(today["Low"])
-    if candle_range > 0:
-        close_quality = (float(today["Close"]) - float(today["Low"])) / candle_range
-        if close_quality < 0.4:
-            reasons.append(f"Closed in lower {int(close_quality * 100)}% of candle — weak close quality")
-            penalty += 1.0
-    low_30d   = float(history["Low"].min())
+
+    # 2. RSI Overbought/Exhaustion (14-period)
+    delta = history["Close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    rsi = (100 - (100 / (1 + rs))).iloc[-1]
+    if rsi > 75:
+        reasons.append(f"RSI {rsi:.1f} indicates momentum exhaustion/overbought")
+        penalty += 1.0
+
+    # 3. Resistance level testing (30-day window)
+    hist_30d = history.iloc[-31:]
+    high_30d = float(hist_30d["High"].max())
+    prior_30d = hist_30d.iloc[:-1]
+    touches = sum(1 for h in prior_30d["High"] if abs(h - high_30d) / high_30d < 0.005)
+    if touches >= 2:
+        reasons.append(f"Heavy resistance: Level tested {touches}x in last 30 days")
+        penalty += 1.0
+
+    # 4. ATR-based Rejection Analysis
+    high, low, pc = history["High"], history["Low"], history["Close"].shift(1)
+    tr = np.maximum(high - low, np.maximum(abs(high - pc), abs(low - pc)))
+    atr = tr.rolling(window=14).mean().iloc[-1]
+    
+    today = history.iloc[-1]
+    upper_wick = float(today["High"]) - max(float(today["Open"]), float(today["Close"]))
+    if atr > 0 and upper_wick > 1.3 * atr:
+        reasons.append(f"High rejection: upper wick is {upper_wick/atr:.1f}x ATR")
+        penalty += 1.5
+    else:
+        candle_range = float(today["High"]) - float(today["Low"])
+        if candle_range > 0:
+            close_quality = (float(today["Close"]) - float(today["Low"])) / candle_range
+            if close_quality < 0.45:
+                reasons.append(f"Weak close quality: session ended in bottom {int(close_quality * 100)}% of range")
+                penalty += 0.8
+
+    # 5. Overextension check
+    low_30d = float(hist_30d["Low"].min())
     range_pct = (high_30d - low_30d) / low_30d * 100
-    if range_pct > 12:
-        reasons.append(f"30-day range {range_pct:.1f}% wide — too volatile for clean consolidation")
-        penalty += 0.8
-    conviction = min(penalty / 4.5, 1.0)
+    if range_pct > 15:
+        reasons.append(f"Overextended 30d range ({range_pct:.1f}%) increases pullback risk")
+        penalty += 0.7
+
+    conviction = min(penalty / 4.0, 1.0)
     is_trap    = conviction > 0.4 and len(reasons) >= 2
-    if is_trap:
-        return round(conviction, 2), "BULL_TRAP", reasons
-    return None, None, []
+    return (round(conviction, 2), "BULL_TRAP", reasons) if is_trap else (None, None, [])
 
 # ─── ACCUMULATION ────────────────────────────────────────────────────────────
 
@@ -308,17 +335,69 @@ def compute_summary(combination, days_in_state, volume_ratio,
 
 # ─── DETECTION ───────────────────────────────────────────────────────────────
 
-def run_detection():
-    init_db()
-    tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
+def notify_webhook(alert_data):
+    """Sends a notification to a Discord/Slack webhook."""
+    url = os.environ.get("NOTIFICATIONS_WEBHOOK_URL")
+    if not url:
+        return
 
+    if "old_regime" in alert_data:
+        payload = {
+            "content": f"🌐 **Market Regime Shift Detected**",
+            "embeds": [{
+                "title": f"{alert_data['old_regime']} ➔ {alert_data['new_regime']}",
+                "description": f"The market proxy (SPY) has shifted into a **{alert_data['new_regime']}** environment.",
+                "color": 3447003
+            }]
+        }
+    else:
+        emoji = "💎" if alert_data.get('edge', 0) >= 8.0 else "🚀"
+        if alert_data['action'] == "AVOID": emoji = "🚫"
+
+        color = 5763719 if alert_data['action'] == "ENTER" else (15548997 if alert_data['action'] == "AVOID" else 9807270)
+        
+        payload = {
+            "content": f"{emoji} **Vigil Alert: {alert_data['ticker']}**",
+            "embeds": [{
+                "title": f"{alert_data['combo']} - {alert_data['action']}",
+                "description": alert_data['summary'],
+                "fields": [
+                    {"name": "Edge Score", "value": str(alert_data['edge']), "inline": True},
+                    {"name": "Regime", "value": alert_data['regime'], "inline": True},
+                    {"name": "MTF Alignment", "value": alert_data['mtf'], "inline": True}
+                ],
+                "color": color
+            }]
+        }
+    
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), 
+                                     headers={'Content-Type': 'application/json'})
+        urllib.request.urlopen(req)
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+
+def run_detection():
+    logger.info("Starting market detection run...")
+    init_db()
+
+    # Check for Regime Shift
     try:
         spy_history = yf.Ticker("SPY").history(period="60d")
         regime = compute_regime(spy_history)
+        last_regime = get_latest_regime()
+        if last_regime and last_regime != regime:
+            logger.info(f"Regime Shift: {last_regime} -> {regime}")
+            notify_webhook({"old_regime": last_regime, "new_regime": regime})
     except Exception as e:
-        print(f"Regime error: {e}")
+        logger.error(f"Regime error: {e}")
         regime = "UNKNOWN"
-    print(f"Regime: {regime}")
+
+    watchlist = get_watchlist()
+    default_tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
+    tickers = list(set(watchlist + default_tickers))
+    logger.info(f"Scanning {len(tickers)} tickers (including {len(watchlist)} from watchlist)")
+    logger.info(f"Market Regime: {regime}")
 
     for ticker_symbol in tickers:
         try:
@@ -364,7 +443,20 @@ def run_detection():
                     days_in_state=days_in, prev_state=prev_state,
                     regime=regime, action=action, summary=summary
                 )
-                print(f"{ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
+                logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
+                
+                # Notification logic: Enter signals or Elite setups
+                should_notify = (action == "ENTER") or (edge >= 8.0)
+                if should_notify:
+                    notify_webhook({
+                        "ticker": ticker_symbol,
+                        "combo": combo,
+                        "action": action,
+                        "edge": edge,
+                        "summary": summary,
+                        "regime": regime,
+                        "mtf": mtf_alignment
+                    })
 
             # ── Volume spike up ──────────────────────────────────────────
             if ratio >= 1.5 and change_percent >= 2.0:
@@ -385,7 +477,20 @@ def run_detection():
                     regime=regime, action=action, summary=summary
                 )
                 trap_note = f" ⚠ TRAP {int(trap_conv*100)}%" if trap_conv else ""
-                print(f"{ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
+                logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
+
+                # Notification logic: Enter, Elite, or High-Conviction Avoid (Bearish Trap)
+                should_notify = (action == "ENTER") or (edge >= 8.0) or (action == "AVOID" and trap_conv > 0.7)
+                if should_notify:
+                    notify_webhook({
+                        "ticker": ticker_symbol,
+                        "combo": combo,
+                        "action": action,
+                        "edge": edge,
+                        "summary": summary,
+                        "regime": regime,
+                        "mtf": mtf_alignment
+                    })
 
             # ── Volume spike down ────────────────────────────────────────
             elif ratio >= 1.5 and change_percent <= -2.0:
@@ -402,10 +507,10 @@ def run_detection():
                     days_in_state=days_in, prev_state=prev_state,
                     regime=regime, action=action, summary=summary
                 )
-                print(f"{ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
+                logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
 
         except Exception as e:
-            print(f"{ticker_symbol} — ERROR: {e}")
+            logger.exception(f"Critical error during detection for {ticker_symbol}: {e}")
 
 
 def run_backfill():

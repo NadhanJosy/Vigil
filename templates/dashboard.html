@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vigil Trading Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            border-left: 4px solid #00d4ff;
+        }
+
+        h1 {
+            font-size: 2em;
+            color: #00d4ff;
+        }
+
+        .regime-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .regime-trending { background: #00d4ff; color: #000; }
+        .regime-risk-off { background: #ff6b6b; color: #fff; }
+        .regime-volatile { background: #ffd93d; color: #000; }
+        .regime-sideways { background: #a8b5ff; color: #000; }
+        .regime-unknown { background: #666; color: #fff; }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        input, select, button {
+            padding: 10px 15px;
+            border: 1px solid #444;
+            border-radius: 5px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #eee;
+            font-size: 0.95em;
+        }
+
+        button {
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #00a8cc;
+            transform: translateY(-2px);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .stat-box {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 0.85em;
+            color: #aaa;
+            margin-top: 8px;
+        }
+
+        .alerts-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid #444;
+        }
+
+        .alerts-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .alert-item {
+            background: rgba(0, 212, 255, 0.05);
+            border-left: 4px solid #00d4ff;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .alert-item:hover {
+            background: rgba(0, 212, 255, 0.1);
+            transform: translateX(5px);
+        }
+
+        .alert-item.avoid {
+            border-left-color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.05);
+        }
+
+        .alert-item.avoid:hover {
+            background: rgba(255, 107, 107, 0.1);
+        }
+
+        .alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .ticker {
+            font-weight: bold;
+            font-size: 1.1em;
+            color: #00d4ff;
+        }
+
+        .signal-type {
+            font-size: 0.8em;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 3px 8px;
+            border-radius: 3px;
+            color: #ccc;
+        }
+
+        .edge-score {
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+
+        .edge-score.high { background: #00d4ff; color: #000; }
+        .edge-score.medium { background: #ffd93d; color: #000; }
+        .edge-score.low { background: #666; color: #fff; }
+
+        .alert-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            font-size: 0.9em;
+            color: #bbb;
+        }
+
+        .detail {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .detail-label {
+            color: #888;
+        }
+
+        .detail-value {
+            color: #eee;
+            font-weight: 500;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+        }
+
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+
+        .watchlist-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .watchlist-modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #1a1a2e;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid #444;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            color: #00d4ff;
+            margin-bottom: 10px;
+        }
+
+        .watchlist-items {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .watchlist-item {
+            background: rgba(0, 212, 255, 0.1);
+            border: 1px solid #00d4ff;
+            padding: 8px 12px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .watchlist-item button {
+            background: none;
+            border: none;
+            color: #ff6b6b;
+            font-weight: bold;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .add-ticker {
+            display: flex;
+            gap: 10px;
+        }
+
+        .add-ticker input {
+            flex: 1;
+        }
+
+        .close-modal {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            background: none;
+            border: none;
+            color: #aaa;
+            font-size: 1.5em;
+            cursor: pointer;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-indicator.online { background: #00d4ff; }
+        .status-indicator.offline { background: #ff6b6b; }
+
+        .last-update {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                gap: 15px;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+
+            input, select, button {
+                width: 100%;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Vigil Trading Assistant</h1>
+            <div>
+                <span class="status-indicator online"></span>
+                Market Regime: <span id="regime" class="regime-badge">Loading...</span>
+            </div>
+        </header>
+
+        <div class="controls">
+            <input type="text" id="searchTicker" placeholder="Filter by ticker..." />
+            <select id="filterSignal">
+                <option value="">All Signals</option>
+                <option value="VOLUME_SPIKE_UP">Volume Spike Up</option>
+                <option value="VOLUME_SPIKE_DOWN">Volume Spike Down</option>
+                <option value="ACCUMULATION_DETECTED">Accumulation</option>
+            </select>
+            <select id="filterAction">
+                <option value="">All Actions</option>
+                <option value="ENTER">ENTER (Buy)</option>
+                <option value="AVOID">AVOID (Sell)</option>
+                <option value="WAIT">WAIT</option>
+            </select>
+            <button onclick="triggerDetection()">🔄 Trigger Detection</button>
+            <button onclick="openWatchlistModal()">📋 Watchlist</button>
+            <button onclick="refreshData()">♻️ Refresh</button>
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-value" id="totalAlerts">-</div>
+                <div class="stat-label">Total Alerts</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="enterSignals">-</div>
+                <div class="stat-label">ENTER Signals</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="eliteSetups">-</div>
+                <div class="stat-label">Elite (≥8.0)</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-value" id="watchlistCount">-</div>
+                <div class="stat-label">On Watchlist</div>
+            </div>
+        </div>
+
+        <div class="alerts-section">
+            <div class="alerts-header">
+                <h2>Recent Signals</h2>
+                <div class="last-update">Auto-refreshing every 30 seconds</div>
+            </div>
+            <div id="alertsList" class="alerts-list">
+                <div class="loading">Loading alerts...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="watchlistModal" class="watchlist-modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="closeWatchlistModal()">×</button>
+            <div class="modal-header">
+                <h2>Your Watchlist</h2>
+                <p style="color: #888; font-size: 0.9em;">Tickers on your watchlist get priority during detection</p>
+            </div>
+            <div class="watchlist-items" id="watchlistItems"></div>
+            <div class="add-ticker">
+                <input type="text" id="newTicker" placeholder="Enter ticker (e.g., MSTR)" />
+                <button onclick="addToWatchlist()">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let allAlerts = [];
+
+        async function loadAlerts() {
+            try {
+                const response = await fetch(`${API_BASE}/alerts?limit=50`);
+                const data = await response.json();
+                allAlerts = data;
+                filterAndDisplayAlerts();
+                updateStats();
+            } catch (error) {
+                console.error('Error loading alerts:', error);
+                document.getElementById('alertsList').innerHTML = `<div class="empty">Failed to load alerts</div>`;
+            }
+        }
+
+        async function loadRegime() {
+            try {
+                const response = await fetch(`${API_BASE}/regime`);
+                const data = await response.json();
+                const regime = data.regime || 'UNKNOWN';
+                const badge = document.getElementById('regime');
+                badge.textContent = regime;
+                badge.className = `regime-badge regime-${regime.toLowerCase()}`;
+            } catch (error) {
+                console.error('Error loading regime:', error);
+            }
+        }
+
+        async function loadWatchlist() {
+            try {
+                const response = await fetch(`${API_BASE}/watchlist`);
+                const data = await response.json();
+                displayWatchlist(data);
+                document.getElementById('watchlistCount').textContent = data.length;
+            } catch (error) {
+                console.error('Error loading watchlist:', error);
+            }
+        }
+
+        function filterAndDisplayAlerts() {
+            const ticker = document.getElementById('searchTicker').value.toUpperCase();
+            const signal = document.getElementById('filterSignal').value;
+            const action = document.getElementById('filterAction').value;
+
+            let filtered = allAlerts.filter(alert => {
+                if (ticker && !alert.ticker.includes(ticker)) return false;
+                if (signal && alert.signal_type !== signal) return false;
+                if (action && alert.action !== action) return false;
+                return true;
+            });
+
+            displayAlerts(filtered);
+        }
+
+        function displayAlerts(alerts) {
+            const container = document.getElementById('alertsList');
+            
+            if (alerts.length === 0) {
+                container.innerHTML = '<div class="empty">No alerts match your filters</div>';
+                return;
+            }
+
+            container.innerHTML = alerts.map(alert => {
+                const edgeScore = alert.edge_score || 0;
+                let edgeClass = 'low';
+                if (edgeScore >= 8) edgeClass = 'high';
+                else if (edgeScore >= 5) edgeClass = 'medium';
+
+                const isAvoid = alert.action === 'AVOID';
+                const decay = alert.decay || {};
+
+                return `
+                    <div class="alert-item ${isAvoid ? 'avoid' : ''}">
+                        <div class="alert-header">
+                            <div>
+                                <div class="ticker">${alert.ticker}</div>
+                                <div style="font-size: 0.8em; color: #666;">${alert.date}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="signal-type">${alert.signal_type || 'UNKNOWN'}</div>
+                                ${edgeScore ? `<div class="edge-score ${edgeClass}">${edgeScore.toFixed(1)}</div>` : ''}
+                            </div>
+                        </div>
+                        <div class="alert-details">
+                            <div class="detail">
+                                <span class="detail-label">Action:</span>
+                                <span class="detail-value">${alert.action || 'N/A'}</span>
+                            </div>
+                            <div class="detail">
+                                <span class="detail-label">Change:</span>
+                                <span class="detail-value">${alert.change_pct ? alert.change_pct.toFixed(2) + '%' : 'N/A'}</span>
+                            </div>
+                            <div class="detail">
+                                <span class="detail-label">Volume:</span>
+                                <span class="detail-value">${alert.volume_ratio ? alert.volume_ratio.toFixed(1) + 'x' : 'N/A'}</span>
+                            </div>
+                            <div class="detail">
+                                <span class="detail-label">State:</span>
+                                <span class="detail-value">${alert.state || 'N/A'}</span>
+                            </div>
+                            ${alert.mtf_alignment ? `
+                            <div class="detail">
+                                <span class="detail-label">MTF:</span>
+                                <span class="detail-value">${alert.mtf_alignment}</span>
+                            </div>
+                            ` : ''}
+                            ${decay.status ? `
+                            <div class="detail">
+                                <span class="detail-label">Decay:</span>
+                                <span class="detail-value">${decay.status} (${decay.pct}%)</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                        ${alert.summary ? `<div style="font-size: 0.85em; color: #aaa; margin-top: 10px; font-style: italic;">"${alert.summary}"</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateStats() {
+            document.getElementById('totalAlerts').textContent = allAlerts.length;
+            document.getElementById('enterSignals').textContent = allAlerts.filter(a => a.action === 'ENTER').length;
+            document.getElementById('eliteSetups').textContent = allAlerts.filter(a => (a.edge_score || 0) >= 8.0).length;
+        }
+
+        function displayWatchlist(items) {
+            const container = document.getElementById('watchlistItems');
+            container.innerHTML = items.map(ticker => `
+                <div class="watchlist-item">
+                    ${ticker}
+                    <button onclick="removeFromWatchlist('${ticker}')">✕</button>
+                </div>
+            `).join('');
+        }
+
+        async function addToWatchlist() {
+            const ticker = document.getElementById('newTicker').value.toUpperCase();
+            if (!ticker) return;
+
+            try {
+                await fetch(`${API_BASE}/watchlist`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ticker })
+                });
+                document.getElementById('newTicker').value = '';
+                loadWatchlist();
+            } catch (error) {
+                console.error('Error adding to watchlist:', error);
+                alert('Failed to add ticker');
+            }
+        }
+
+        async function removeFromWatchlist(ticker) {
+            try {
+                await fetch(`${API_BASE}/watchlist?ticker=${ticker}`, { method: 'DELETE' });
+                loadWatchlist();
+            } catch (error) {
+                console.error('Error removing from watchlist:', error);
+                alert('Failed to remove ticker');
+            }
+        }
+
+        async function triggerDetection() {
+            try {
+                await fetch(`${API_BASE}/trigger`);
+                alert('Detection triggered! Alerts will appear shortly.');
+                setTimeout(loadAlerts, 2000);
+            } catch (error) {
+                console.error('Error triggering detection:', error);
+                alert('Failed to trigger detection');
+            }
+        }
+
+        function refreshData() {
+            loadAlerts();
+            loadRegime();
+            loadWatchlist();
+        }
+
+        function openWatchlistModal() {
+            document.getElementById('watchlistModal').classList.add('active');
+        }
+
+        function closeWatchlistModal() {
+            document.getElementById('watchlistModal').classList.remove('active');
+        }
+
+        // Initial load and auto-refresh
+        loadAlerts();
+        loadRegime();
+        loadWatchlist();
+
+        setInterval(refreshData, 30000); // Refresh every 30 seconds
+
+        // Event listeners
+        document.getElementById('searchTicker').addEventListener('input', filterAndDisplayAlerts);
+        document.getElementById('filterSignal').addEventListener('change', filterAndDisplayAlerts);
+        document.getElementById('filterAction').addEventListener('change', filterAndDisplayAlerts);
+        document.getElementById('newTicker').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') addToWatchlist();
+        });
+
+        // Close modal on background click
+        document.getElementById('watchlistModal').addEventListener('click', (e) => {
+            if (e.target.id === 'watchlistModal') closeWatchlistModal();
+        });
+    </script>
+</body>
+</html>

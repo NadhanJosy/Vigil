@@ -1,6 +1,9 @@
 import os
 import json
 import psycopg2
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_conn():
     db_url = os.environ.get("DATABASE_URL")
@@ -69,9 +72,38 @@ def init_db():
         ("summary",               "TEXT"),
     ]:
         cursor.execute(f"ALTER TABLE alerts ADD COLUMN IF NOT EXISTS {col} {typedef}")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS watchlist (
+            ticker TEXT PRIMARY KEY,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
     conn.commit()
     conn.close()
-    print("Database ready")
+    logger.info("Database ready")
+
+def add_to_watchlist(ticker):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO watchlist (ticker) VALUES (%s) ON CONFLICT DO NOTHING", (ticker.upper(),))
+    conn.commit()
+    conn.close()
+
+def remove_from_watchlist(ticker):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM watchlist WHERE ticker = %s", (ticker.upper(),))
+    conn.commit()
+    conn.close()
+
+def get_watchlist():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT ticker FROM watchlist ORDER BY ticker")
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 def get_recent_alert_for_ticker(ticker, signal_type, days=7):
     """Returns most recent alert of given type for ticker within N days, or None."""
@@ -87,6 +119,15 @@ def get_recent_alert_for_ticker(ticker, signal_type, days=7):
     row = cursor.fetchone()
     conn.close()
     return row
+
+def get_latest_regime():
+    """Returns the regime from the most recent alert in the database."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT regime FROM alerts WHERE regime IS NOT NULL ORDER BY created_at DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
                trap_conviction=None, trap_type=None, trap_reasons=None,
@@ -127,18 +168,37 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
         conn.commit()
     conn.close()
 
-def get_all_alerts():
+def get_alerts(ticker=None, signal_type=None, state=None, limit=50, offset=0):
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("""
+    query = """
         SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
                outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons,
                accum_conviction, accum_days, accum_price_range_pct,
                mtf_weekly, mtf_daily, mtf_recent, mtf_alignment,
                created_at, signal_combination, edge_score, days_in_state,
                prev_state, regime, action, summary
-        FROM alerts ORDER BY date DESC, created_at DESC
-    """)
+        FROM alerts
+    """
+    params = []
+    filters = []
+    if ticker:
+        filters.append("ticker = %s")
+        params.append(ticker.upper())
+    if signal_type:
+        filters.append("signal_type = %s")
+        params.append(signal_type.upper())
+    if state:
+        filters.append("state = %s")
+        params.append(state.upper())
+
+    if filters:
+        query += " WHERE " + " AND ".join(filters)
+
+    query += " ORDER BY date DESC, created_at DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+
+    cursor.execute(query, tuple(params))
     rows = cursor.fetchall()
     conn.close()
     return rows

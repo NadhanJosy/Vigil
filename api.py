@@ -1,11 +1,16 @@
 import os
 import json
+import logging
 from datetime import datetime, timezone
-from flask import Flask, jsonify, send_from_directory
-from database import init_db, get_all_alerts, save_alert
+from flask import Flask, jsonify, send_from_directory, request
+from database import (init_db, get_alerts, save_alert, 
+                      add_to_watchlist, remove_from_watchlist, get_watchlist)
 from data import run_detection, run_backfill, compute_regime
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 init_db()
@@ -41,11 +46,21 @@ def compute_decay(signal_type, created_at):
 
 @app.route("/")
 def index():
+    return send_from_directory("templates", "dashboard.html")
+
+@app.route("/legacy")
+def legacy():
     return send_from_directory("templates", "index.html")
 
 @app.route("/alerts")
 def alerts():
-    data   = get_all_alerts()
+    ticker      = request.args.get("ticker")
+    signal_type = request.args.get("signal_type")
+    state       = request.args.get("state")
+    limit       = request.args.get("limit", default=50, type=int)
+    offset      = request.args.get("offset", default=0, type=int)
+
+    data   = get_alerts(ticker=ticker, signal_type=signal_type, state=state, limit=limit, offset=offset)
     result = []
     for row in data:
         decay = compute_decay(row[5], row[19])
@@ -105,6 +120,21 @@ def evaluate():
     from database import evaluate_outcomes
     evaluate_outcomes()
     return jsonify({"status": "outcomes evaluated"})
+
+@app.route("/watchlist", methods=["GET", "POST", "DELETE"])
+def watchlist():
+    if request.method == "POST":
+        ticker = request.json.get("ticker")
+        if ticker:
+            add_to_watchlist(ticker)
+        return jsonify({"status": "added"})
+    elif request.method == "DELETE":
+        ticker = request.args.get("ticker")
+        if ticker:
+            remove_from_watchlist(ticker)
+        return jsonify({"status": "removed"})
+    else:
+        return jsonify(get_watchlist())
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
