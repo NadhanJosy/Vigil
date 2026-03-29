@@ -20,6 +20,7 @@ def index():
 
 @app.route("/alerts")
 def alerts():
+    import json
     data = get_all_alerts()
     result = []
     for row in data:
@@ -30,9 +31,12 @@ def alerts():
             "volume_ratio": round(row[3], 2),
             "change_pct": round(row[4], 2),
             "signal_type": row[5],
-            "state": row[6] if len(row) > 6 else "UNKNOWN",
+            "state": row[6],
             "outcome_pct": round(row[7], 2) if row[7] is not None else None,
-            "outcome_result": row[8] if len(row) > 8 else None
+            "outcome_result": row[8],
+            "trap_conviction": row[9],
+            "trap_type": row[10],
+            "trap_reasons": json.loads(row[11]) if row[11] else []
         })
     return jsonify(result)
 
