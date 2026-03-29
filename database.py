@@ -34,7 +34,8 @@ def init_db():
             mtf_weekly TEXT,
             mtf_daily TEXT,
             mtf_recent TEXT,
-            mtf_alignment TEXT
+            mtf_alignment TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
     for col, typedef in [
@@ -51,6 +52,7 @@ def init_db():
         ("mtf_daily",             "TEXT"),
         ("mtf_recent",            "TEXT"),
         ("mtf_alignment",         "TEXT"),
+        ("created_at",            "TIMESTAMPTZ DEFAULT NOW()"),
     ]:
         cursor.execute(f"ALTER TABLE alerts ADD COLUMN IF NOT EXISTS {col} {typedef}")
     conn.commit()
@@ -95,7 +97,8 @@ def get_all_alerts():
         SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
                outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons,
                accum_conviction, accum_days, accum_price_range_pct,
-               mtf_weekly, mtf_daily, mtf_recent, mtf_alignment
+               mtf_weekly, mtf_daily, mtf_recent, mtf_alignment,
+               created_at
         FROM alerts ORDER BY date DESC
     """)
     rows = cursor.fetchall()
@@ -127,7 +130,7 @@ def evaluate_outcomes():
             if len(history) < 2:
                 continue
             entry_price = history["Close"].iloc[0]
-            exit_price = history["Close"].iloc[-1]
+            exit_price  = history["Close"].iloc[-1]
             outcome_pct = (exit_price - entry_price) / entry_price * 100
             days = len(history)
             if signal_type == "VOLUME_SPIKE_UP":
