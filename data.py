@@ -49,6 +49,27 @@ def run_detection():
         
         except Exception as e:
             print(f"{ticker_symbol} — ERROR: {e}")
+def run_backfill():
+    init_db()
+    tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
+    
+    for ticker_symbol in tickers:
+        ticker = yf.Ticker(ticker_symbol)
+        history = ticker.history(period="30d")
+        average_volume = history["Volume"].mean()
+        
+        for i in range(len(history)):
+            date = history.index[i].date()
+            today_volume = history["Volume"].iloc[i]
+            ratio = today_volume / average_volume
+            open_price = history["Open"].iloc[i]
+            close_price = history["Close"].iloc[i]
+            change_percent = (close_price - open_price) / open_price * 100
+            
+            if ratio >= 1.5 and change_percent >= 2.0:
+                save_alert(ticker_symbol, date, ratio, change_percent, "VOLUME_SPIKE_UP", "TRENDING_UP")
+            elif ratio >= 1.5 and change_percent <= -2.0:
+                save_alert(ticker_symbol, date, ratio, change_percent, "VOLUME_SPIKE_DOWN", "TRENDING_DOWN")
 
 
 if __name__ == "__main__":

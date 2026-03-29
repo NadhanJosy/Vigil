@@ -14,6 +14,10 @@ atexit.register(lambda: scheduler.shutdown())
 
 init_db()
 
+if len(get_all_alerts()) == 0:
+    from data import run_backfill
+    run_backfill()
+
 @app.route("/alerts")
 def alerts():
     data = get_all_alerts()
