@@ -28,15 +28,18 @@ def alerts():
             "id": row[0],
             "ticker": row[1],
             "date": row[2],
-            "volume_ratio": round(row[3], 2),
-            "change_pct": round(row[4], 2),
+            "volume_ratio": round(float(row[3]), 2) if row[3] is not None else None,
+            "change_pct": round(float(row[4]), 2) if row[4] is not None else None,
             "signal_type": row[5],
             "state": row[6],
-            "outcome_pct": round(row[7], 2) if row[7] is not None else None,
+            "outcome_pct": round(float(row[7]), 2) if row[7] is not None else None,
             "outcome_result": row[8],
             "trap_conviction": row[9],
             "trap_type": row[10],
-            "trap_reasons": json.loads(row[11]) if row[11] else []
+            "trap_reasons": json.loads(row[11]) if row[11] else [],
+            "accum_conviction": row[12],
+            "accum_days": row[13],
+            "accum_price_range_pct": row[14],
         })
     return jsonify(result)
 

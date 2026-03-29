@@ -27,17 +27,22 @@ def init_db():
             outcome_result TEXT,
             trap_conviction REAL,
             trap_type TEXT,
-            trap_reasons TEXT
+            trap_reasons TEXT,
+            accum_conviction REAL,
+            accum_days INTEGER,
+            accum_price_range_pct REAL
         )
     """)
-    # Migrations — safe to run every time
     for col, typedef in [
-        ("outcome_pct",    "REAL"),
-        ("outcome_days",   "INTEGER"),
-        ("outcome_result", "TEXT"),
-        ("trap_conviction","REAL"),
-        ("trap_type",      "TEXT"),
-        ("trap_reasons",   "TEXT"),
+        ("outcome_pct",           "REAL"),
+        ("outcome_days",          "INTEGER"),
+        ("outcome_result",        "TEXT"),
+        ("trap_conviction",       "REAL"),
+        ("trap_type",             "TEXT"),
+        ("trap_reasons",          "TEXT"),
+        ("accum_conviction",      "REAL"),
+        ("accum_days",            "INTEGER"),
+        ("accum_price_range_pct", "REAL"),
     ]:
         cursor.execute(f"ALTER TABLE alerts ADD COLUMN IF NOT EXISTS {col} {typedef}")
     conn.commit()
@@ -45,19 +50,29 @@ def init_db():
     print("Database ready")
 
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
-               trap_conviction=None, trap_type=None, trap_reasons=None):
+               trap_conviction=None, trap_type=None, trap_reasons=None,
+               accum_conviction=None, accum_days=None, accum_price_range_pct=None):
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM alerts WHERE ticker = %s AND date = %s", (ticker, str(date)))
+    cursor.execute("SELECT id FROM alerts WHERE ticker = %s AND date = %s AND signal_type = %s",
+                   (ticker, str(date), signal_type))
     if not cursor.fetchone():
         cursor.execute("""
-            INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state,
-                                trap_conviction, trap_type, trap_reasons)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO alerts (
+                ticker, date, volume_ratio, change_pct, signal_type, state,
+                trap_conviction, trap_type, trap_reasons,
+                accum_conviction, accum_days, accum_price_range_pct
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
-            ticker, str(date), float(volume_ratio), float(change_pct), signal_type, state,
+            ticker, str(date),
+            float(volume_ratio) if volume_ratio is not None else None,
+            float(change_pct) if change_pct is not None else None,
+            signal_type, state,
             trap_conviction, trap_type,
-            json.dumps(trap_reasons) if trap_reasons else None
+            json.dumps(trap_reasons) if trap_reasons else None,
+            accum_conviction,
+            accum_days,
+            accum_price_range_pct
         ))
         conn.commit()
     conn.close()
@@ -67,7 +82,8 @@ def get_all_alerts():
     cursor = conn.cursor()
     cursor.execute("""
         SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
-               outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons
+               outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons,
+               accum_conviction, accum_days, accum_price_range_pct
         FROM alerts ORDER BY date DESC
     """)
     rows = cursor.fetchall()
@@ -83,6 +99,7 @@ def evaluate_outcomes():
     cursor.execute("""
         SELECT id, ticker, date, signal_type
         FROM alerts WHERE outcome_result IS NULL
+        AND signal_type != 'ACCUMULATION_DETECTED'
     """)
     pending = cursor.fetchall()
 
