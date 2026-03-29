@@ -2,8 +2,15 @@ import os
 from data import run_detection
 from flask import Flask, jsonify, send_from_directory
 from database import init_db, get_all_alerts
-
+from apscheduler.schedulers.background import BackgroundScheduler
+from data import run_detection
+import atexit
 app = Flask(__name__)
+scheduler = BackgroundScheduler()
+scheduler.add_job(run_detection, "cron", hour=21, minute=0, timezone="America/New_York")
+scheduler.start()
+
+atexit.register(lambda: scheduler.shutdown())
 
 init_db()
 
