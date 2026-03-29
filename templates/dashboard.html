@@ -1,304 +1,733 @@
 <!DOCTYPE html>
-<html lang="en" class="bg-[#050506] text-[#EDEDEF] antialiased">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vigil // Institutional Intelligence</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['Geist Mono', 'monospace'] },
-                    colors: {
-                        accent: '#5E6AD2',
-                        'accent-bright': '#6872D9',
-                        'bg-base': '#050506',
-                        'bg-deep': '#020203',
-                        'border-default': 'rgba(255,255,255,0.06)',
-                    },
-                    animation: {
-                        'pulse-slow': 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                        'float': 'float 10s ease-in-out infinite',
-                    },
-                    keyframes: {
-                        float: {
-                            '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
-                            '50%': { transform: 'translateY(-20px) rotate(1deg)' },
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    <title>Vigil — Market Intelligence</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        /* Layered Background System */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-deep:       #020203;
+            --bg-base:       #050506;
+            --bg-elevated:   #0a0a0c;
+            --surface:       rgba(255,255,255,0.05);
+            --surface-hover: rgba(255,255,255,0.08);
+            --fg:            #EDEDEF;
+            --fg-muted:      #8A8F98;
+            --fg-subtle:     rgba(255,255,255,0.40);
+            --accent:        #5E6AD2;
+            --accent-bright: #6872D9;
+            --accent-glow:   rgba(94,106,210,0.3);
+            --border:        rgba(255,255,255,0.06);
+            --border-hover:  rgba(255,255,255,0.10);
+            --c-enter:  #22c55e;
+            --c-wait:   #d97706;
+            --c-avoid:  #dc2626;
+            --c-down:   #475569;
+            --c-accum:  #818cf8;
+        }
+
+        html { font-family: 'Inter', system-ui, sans-serif; font-size: 16px; }
+
+        body {
+            background: var(--bg-base);
+            color: var(--fg);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── BACKGROUND SYSTEM ─────────────────────────────────── */
         .bg-mesh {
-            background: radial-gradient(ellipse at top, #0a0a0f 0%, #050506 50%, #020203 100%);
             position: fixed; inset: 0; z-index: -10;
+            background: radial-gradient(ellipse at top, #0a0a0f 0%, #050506 50%, #020203 100%);
         }
         .bg-grid {
-            background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
-                              linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+            position: fixed; inset: 0; z-index: -9; pointer-events: none;
+            background-image:
+                linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
             background-size: 64px 64px;
-            position: fixed; inset: 0; z-index: -9;
         }
-        .noise {
+        .bg-noise {
             position: fixed; inset: 0; z-index: -8; opacity: 0.015; pointer-events: none;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
         }
-        
-        /* Animated Light Pools */
         .blob {
-            position: fixed; width: 900px; height: 1400px;
-            background: radial-gradient(circle, rgba(94,106,210,0.15) 0%, transparent 70%);
-            filter: blur(120px); z-index: -7; pointer-events: none;
+            position: fixed; border-radius: 50%; filter: blur(120px);
+            z-index: -7; pointer-events: none; animation: float var(--dur, 10s) ease-in-out infinite;
+        }
+        .blob-1 {
+            width: 900px; height: 1200px;
+            background: radial-gradient(circle, rgba(94,106,210,0.18) 0%, transparent 70%);
+            top: -30%; left: 5%; --dur: 10s;
+        }
+        .blob-2 {
+            width: 600px; height: 800px;
+            background: radial-gradient(circle, rgba(120,80,220,0.12) 0%, transparent 70%);
+            top: 20%; right: -10%; --dur: 14s; animation-delay: -4s;
+        }
+        .blob-3 {
+            width: 500px; height: 600px;
+            background: radial-gradient(circle, rgba(60,100,200,0.10) 0%, transparent 70%);
+            bottom: -20%; left: 30%; --dur: 12s; animation-delay: -7s;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50%       { transform: translateY(-24px) rotate(1deg); }
         }
 
-        /* Precision Micro-interactions */
-        .card-spotlight {
-            position: relative;
-            background: linear-gradient(to bottom, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
-            border: 1px solid rgba(255,255,255,0.06);
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 20px rgba(0,0,0,0.4);
+        /* ── REGIME STRIP ──────────────────────────────────────── */
+        .regime-strip {
+            background: rgba(94,106,210,0.06);
+            border-bottom: 1px solid rgba(94,106,210,0.12);
+            padding: 8px 28px;
+            display: flex; align-items: center; gap: 10px;
         }
-        .card-spotlight:hover {
-            transform: translateY(-4px);
-            border-color: rgba(255,255,255,0.12);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 8px 40px rgba(0,0,0,0.5), 0 0 80px rgba(94,106,210,0.05);
+        .regime-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--accent); animation: pulse 3s ease-in-out infinite;
         }
-        
-        .spotlight-glow {
-            position: absolute; inset: 0; pointer-events: none; opacity: 0;
-            transition: opacity 0.5s ease;
-            background: radial-gradient(300px circle at var(--x) var(--y), rgba(94,106,210,0.15), transparent 80%);
-        }
-        .card-spotlight:hover .spotlight-glow { opacity: 1; }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
+        .regime-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
+        .regime-desc  { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--fg-subtle); }
 
-        .headline-gradient {
+        /* ── NAV ───────────────────────────────────────────────── */
+        nav {
+            position: sticky; top: 0; z-index: 50;
+            background: rgba(5,5,6,0.80); backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 28px; height: 60px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .nav-left { display: flex; align-items: baseline; gap: 16px; }
+        .nav-wordmark {
+            font-size: 18px; font-weight: 600; letter-spacing: -0.02em;
             background: linear-gradient(to bottom, #fff 0%, rgba(255,255,255,0.7) 100%);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
+        .nav-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); letter-spacing: 0.08em; }
+        .nav-right { display: flex; align-items: center; gap: 20px; }
+        .nav-status { display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-enter); animation: pulse 2.5s infinite; }
+        .status-text { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); }
+        .btn-primary {
+            background: var(--accent); color: #fff;
+            font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
+            padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
+            box-shadow: 0 0 0 1px rgba(94,106,210,0.5), 0 4px 12px rgba(94,106,210,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+            transition: all 0.2s cubic-bezier(0.16,1,0.3,1);
+        }
+        .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 0 1px rgba(94,106,210,0.7), 0 6px 20px rgba(94,106,210,0.4); transform: translateY(-1px); }
+        .btn-primary:active { transform: scale(0.98); }
+
+        /* ── MAIN CONTENT ──────────────────────────────────────── */
+        main { max-width: 1100px; margin: 0 auto; padding: 40px 28px 100px; }
+
+        /* ── BENTO GRID ────────────────────────────────────────── */
+        .bento {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            grid-template-rows: auto;
+            gap: 12px; margin-bottom: 48px;
+        }
+        .bento-hero { grid-column: span 4; }
+        .bento-health { grid-column: span 2; }
+
+        .card {
+            position: relative; overflow: hidden;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
+            border: 1px solid var(--border); border-radius: 16px;
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 2px 20px rgba(0,0,0,0.4);
+            transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
+        }
+        .card:hover {
+            border-color: var(--border-hover);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(94,106,210,0.06);
+            transform: translateY(-3px);
+        }
+        .card-spotlight {
+            position: absolute; inset: 0; pointer-events: none; opacity: 0;
+            background: radial-gradient(300px circle at var(--mx,50%) var(--my,50%), rgba(94,106,210,0.12), transparent 80%);
+            transition: opacity 0.4s ease;
+        }
+        .card:hover .card-spotlight { opacity: 1; }
+
+        /* Hero card */
+        .hero-card { padding: 32px; min-height: 220px; display: flex; flex-direction: column; justify-content: space-between; }
+        .hero-title {
+            font-size: 42px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+            background: linear-gradient(to bottom, #fff 0%, rgba(255,255,255,0.65) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+        .hero-sub { font-size: 13px; color: var(--fg-muted); max-width: 360px; line-height: 1.6; }
+        .stat-row { display: flex; gap: 40px; margin-top: 24px; }
+        .stat-block {}
+        .stat-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.14em; color: var(--fg-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .stat-value { font-size: 28px; font-weight: 600; }
+        .stat-value.accent { color: var(--accent); }
+
+        /* Health card */
+        .health-card { padding: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 220px; }
+        .health-ring {
+            width: 80px; height: 80px; border-radius: 50%;
+            border: 3px solid rgba(94,106,210,0.15);
+            display: flex; align-items: center; justify-content: center;
+            position: relative; margin: 16px 0;
+        }
+        .health-ring::before {
+            content: ''; position: absolute; inset: -3px; border-radius: 50%;
+            border: 3px solid transparent;
+            border-top-color: var(--accent);
+            animation: spin 2s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .health-num { font-size: 22px; font-weight: 600; }
+        .health-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-muted); letter-spacing: 0.1em; }
+
+        /* ── SECTION HEADER ────────────────────────────────────── */
+        .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+        .section-title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+        .section-meta { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); }
+
+        /* ── ALERT CARDS ───────────────────────────────────────── */
+        .alerts { display: flex; flex-direction: column; gap: 8px; }
+        .divider-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.18em; color: rgba(255,255,255,0.12); margin: 16px 0 6px; }
+
+        .alert-card {
+            position: relative; overflow: hidden;
+            background: #030812;
+            border: 1px solid #0a1628;
+            border-radius: 10px; cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .alert-card.expanded { background: #050c1a; }
+        .alert-card:hover { border-color: #0f1e38; }
+
+        /* Left action bar */
+        .alert-bar {
+            position: absolute; left: 0; top: 12%; bottom: 12%; width: 2px;
+            border-radius: 2px;
+        }
+
+        /* Decay bar */
+        .decay-wrap { padding: 14px 22px 0; }
+        .decay-track { height: 2px; background: #0a1628; border-radius: 1px; overflow: hidden; position: relative; }
+        .decay-fill { height: 100%; border-radius: 1px; transition: width 0.6s ease; }
+        .decay-meta { display: flex; justify-content: flex-end; margin-top: 4px; }
+        .decay-text { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em; }
+
+        /* Alert header */
+        .alert-header { padding: 12px 22px 14px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .alert-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 6px; }
+        .alert-ticker { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 500; color: #e2e8f0; letter-spacing: 0.05em; }
+
+        .action-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            padding: 4px 11px; border-radius: 5px;
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.12em;
+        }
+        .combo-badge {
+            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em;
+            padding: 2px 8px; border-radius: 3px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+            color: var(--fg-muted);
+        }
+        .trap-pill {
+            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em;
+            padding: 2px 8px; border-radius: 3px;
+            background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.2); color: #dc2626;
+        }
+
+        /* MTF dots */
+        .mtf-dots { display: flex; align-items: center; gap: 5px; }
+        .mtf-dot-group { display: flex; align-items: center; gap: 3px; }
+        .mtf-dot { width: 6px; height: 6px; border-radius: 50%; }
+        .mtf-lbl { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: #334155; }
+
+        .alert-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+        .edge-num { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; }
+        .edge-denom { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; }
+        .alert-time { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; }
+
+        /* State row */
+        .state-row { padding: 0 22px 10px; display: flex; align-items: center; gap: 7px; }
+        .state-pill {
+            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.06em;
+            padding: 2px 9px; border-radius: 2px;
+        }
+        .state-arrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #1e3a5f; }
+
+        /* Summary */
+        .alert-summary { padding: 0 22px 18px; font-size: 15px; font-weight: 300; color: #c0cfe4; line-height: 1.5; }
+
+        /* Expanded body */
+        .alert-expanded { border-top: 1px solid #0a1628; padding: 18px 22px 20px; }
+
+        /* Trap warning */
+        .trap-warning {
+            background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.15);
+            border-radius: 5px; padding: 10px 12px; margin-bottom: 14px;
+        }
+        .trap-warning-title { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #dc2626; letter-spacing: 0.1em; margin-bottom: 7px; }
+        .trap-reason { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7f1d1d; line-height: 1.6; display: flex; gap: 8px; margin-bottom: 3px; }
+
+        /* MTF expanded */
+        .mtf-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+
+        /* Detail grid */
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+        .detail-block { background: #030a14; border-radius: 5px; padding: 10px 12px; }
+        .detail-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #1e3a5f; letter-spacing: 0.1em; margin-bottom: 5px; }
+        .detail-value { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; }
+        .detail-value.good { color: var(--c-enter); }
+        .detail-value.bad  { color: var(--c-avoid); }
+        .detail-value.mid  { color: var(--c-wait); }
+
+        /* Edge breakdown */
+        .edge-breakdown { background: #040710; border: 1px solid #0f1a2e; border-radius: 6px; padding: 14px; margin-top: 12px; }
+        .edge-breakdown-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+        .edge-breakdown-title { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; letter-spacing: 0.1em; }
+        .edge-big { font-size: 22px; font-weight: 500; }
+        .edge-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+        .edge-row-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #334155; width: 120px; flex-shrink: 0; }
+        .edge-bar-track { flex: 1; height: 3px; background: #0c1a2e; border-radius: 1px; overflow: hidden; }
+        .edge-bar-fill { height: 100%; border-radius: 1px; }
+        .edge-row-val { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #334155; width: 36px; text-align: right; }
+
+        /* Footer */
+        .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid #050f1e; text-align: center; }
+        .footer-text { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #0a1628; line-height: 2.2; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .bento { grid-template-columns: 1fr; }
+            .bento-hero, .bento-health { grid-column: span 1; }
+            .stat-row { flex-wrap: wrap; gap: 24px; }
+            .detail-grid { grid-template-columns: 1fr; }
+            main { padding: 24px 16px 80px; }
+            nav { padding: 0 16px; }
+        }
+
+        /* Skeleton */
+        .skeleton { background: linear-gradient(90deg, #0a1628 25%, #0f1e38 50%, #0a1628 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 10px; }
+        @keyframes shimmer { 0%{background-position:200%}100%{background-position:-200%} }
     </style>
 </head>
-<body class="overflow-x-hidden min-h-screen">
-    <div class="bg-mesh"></div>
-    <div class="bg-grid"></div>
-    <div class="noise"></div>
-    <div class="blob top-[-20%] left-[10%] animate-float"></div>
-    <div class="blob bottom-[-20%] right-[5%] animate-pulse-slow"></div>
+<body>
 
-    <!-- Navigation -->
-    <nav class="sticky top-0 z-50 border-b border-white/[0.06] bg-[#050506]/80 backdrop-blur-xl">
-        <div class="container mx-auto px-6 h-16 flex items-center justify-between">
-            <div class="flex items-center gap-8">
-                <span class="text-xl font-semibold tracking-tighter headline-gradient">VIGIL</span>
-                <div class="hidden md:flex gap-6 text-sm text-[#8A8F98]">
-                    <a href="/" class="hover:text-white transition-colors">Dashboard</a>
-                    <a href="/watchlist" class="hover:text-white transition-colors">Watchlist</a>
-                    <a href="/legacy" class="hover:text-white transition-colors">Legacy View</a>
+<div class="bg-mesh"></div>
+<div class="bg-grid"></div>
+<div class="bg-noise"></div>
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+<div class="blob blob-3"></div>
+
+<!-- REGIME STRIP -->
+<div class="regime-strip">
+    <div class="regime-dot"></div>
+    <span class="regime-label" id="regime-label">SCANNING...</span>
+    <span class="regime-desc">·</span>
+    <span class="regime-desc" id="regime-desc">Fetching market context</span>
+</div>
+
+<!-- NAV -->
+<nav>
+    <div class="nav-left">
+        <span class="nav-wordmark">Vigil</span>
+        <span class="nav-sub">Market Intelligence</span>
+    </div>
+    <div class="nav-right">
+        <div class="nav-status">
+            <div class="status-dot"></div>
+            <span class="status-text" id="scan-status">Live · 5 assets</span>
+        </div>
+        <button class="btn-primary" onclick="runPulse()">Run Pulse</button>
+    </div>
+</nav>
+
+<!-- MAIN -->
+<main>
+
+    <!-- BENTO -->
+    <div class="bento">
+        <div class="bento-hero card">
+            <div class="card-spotlight"></div>
+            <div class="hero-card">
+                <div>
+                    <div class="hero-title">Alpha Engine</div>
+                    <div class="hero-sub">Institutional performance metrics derived from multi-timeframe signal analysis and edge scoring.</div>
                 </div>
-            </div>
-            <div class="flex items-center gap-4">
-                <span id="market-regime" class="text-[10px] font-mono tracking-widest uppercase px-2 py-1 rounded-full border border-accent/30 bg-accent/10 text-accent">
-                    SCANNING...
-                </span>
-                <button onclick="triggerDetection()" class="text-xs bg-accent hover:bg-accent-bright px-4 py-2 rounded-lg font-medium transition-all active:scale-95 shadow-[0_0_0_1px_rgba(94,106,210,0.5),0_4px_12px_rgba(94,106,210,0.3)]">
-                    Run Pulse
-                </button>
+                <div class="stat-row">
+                    <div class="stat-block">
+                        <div class="stat-label">Profit Factor</div>
+                        <div class="stat-value" id="s-pf">—</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-label">Sharpe Ratio</div>
+                        <div class="stat-value accent" id="s-sharpe">—</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-label">Win Rate</div>
+                        <div class="stat-value" id="s-wr">—</div>
+                    </div>
+                </div>
             </div>
         </div>
-    </nav>
-
-    <main class="container mx-auto px-6 py-12">
-        <!-- Hero Metrics (Asymmetric Bento Grid) -->
-        <section class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-16">
-            <div class="md:col-span-4 card-spotlight p-8 rounded-2xl flex flex-col justify-between min-h-[240px]">
-                <div>
-                    <h1 class="text-4xl md:text-5xl font-semibold tracking-tight headline-gradient mb-2">Alpha Engine</h1>
-                    <p class="text-[#8A8F98] max-w-md">Institutional performance metrics derived from multi-timeframe divergence and alpha generation.</p>
+        <div class="bento-health card">
+            <div class="card-spotlight"></div>
+            <div class="health-card">
+                <div class="health-label">SYSTEM HEALTH</div>
+                <div class="health-ring">
+                    <span class="health-num" id="s-trades">0</span>
                 </div>
-                <div class="flex gap-12 mt-8">
-                    <div>
-                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">PROFIT FACTOR</span>
-                        <span id="stat-profit-factor" class="text-3xl font-semibold">0.00</span>
-                    </div>
-                    <div>
-                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">SHARPE RATIO</span>
-                        <span id="stat-sharpe" class="text-3xl font-semibold text-accent">0.00</span>
-                    </div>
-                    <div>
-                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">WIN RATE</span>
-                        <span id="stat-win-rate" class="text-3xl font-semibold">0%</span>
-                    </div>
-                </div>
-                <div class="spotlight-glow"></div>
+                <div class="health-label">Evaluated Signals</div>
             </div>
-            <div class="md:col-span-2 card-spotlight p-8 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span class="text-xs font-mono tracking-widest text-[#8A8F98] mb-4 uppercase">System Health</span>
-                <div class="w-24 h-24 rounded-full border-4 border-accent/20 flex items-center justify-center relative">
-                    <div class="absolute inset-0 rounded-full border-t-4 border-accent animate-spin"></div>
-                    <span id="active-tickers" class="text-2xl font-semibold">0</span>
+        </div>
+    </div>
+
+    <!-- ALERT FEED -->
+    <div class="section-header">
+        <div class="section-title">Alert Feed</div>
+        <div class="section-meta" id="feed-meta">Loading...</div>
+    </div>
+
+    <div class="alerts" id="alerts-container">
+        <div class="skeleton" style="height:120px"></div>
+        <div class="skeleton" style="height:120px;opacity:0.7"></div>
+        <div class="skeleton" style="height:120px;opacity:0.4"></div>
+    </div>
+
+    <div class="footer">
+        <div class="footer-text">
+            Pattern observations only · Not financial advice · Past performance does not guarantee future results<br>
+            The system's silence is as meaningful as its alerts
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────────────────────────
+
+const ACTION = {
+    ENTER:      { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  border: 'rgba(34,197,94,0.2)',  icon: '▲' },
+    WAIT:       { color: '#d97706', bg: 'rgba(217,119,6,0.08)',  border: 'rgba(217,119,6,0.2)',  icon: '◐' },
+    AVOID:      { color: '#dc2626', bg: 'rgba(220,38,38,0.08)',  border: 'rgba(220,38,38,0.2)',  icon: '▼' },
+    STAND_DOWN: { color: '#475569', bg: 'rgba(71,85,105,0.06)',  border: 'rgba(71,85,105,0.15)', icon: '◌' },
+    UNKNOWN:    { color: '#334155', bg: 'transparent',           border: '#0f172a',              icon: '·' },
+};
+
+const STATE_COLOR = {
+    BREAKOUT:    '#22c55e', TRENDING_UP:  '#34d399',
+    TRENDING_DOWN:'#f87171',RANGING:      '#64748b',
+    ACCUMULATING:'#818cf8', VOLATILE:     '#f59e0b',
+};
+
+const MTF_COLOR = { UP: '#22c55e', NEUTRAL: '#334155', DOWN: '#dc2626' };
+
+const REGIME_DESC = {
+    TRENDING: 'All signal types performing at or above baseline.',
+    RISK_OFF:  'Market in risk-off mode — caution on all longs.',
+    VOLATILE:  'Elevated volatility — reduce position sizes.',
+    SIDEWAYS:  'Consolidation regime — breakouts less reliable.',
+    UNKNOWN:   'Regime unknown — insufficient data.',
+};
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+
+let expandedId = null;
+
+// ── SPOTLIGHT ────────────────────────────────────────────────────────────────
+
+document.addEventListener('mousemove', e => {
+    document.querySelectorAll('.card').forEach(card => {
+        const r = card.getBoundingClientRect();
+        card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+        card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    });
+});
+
+// ── HELPERS ──────────────────────────────────────────────────────────────────
+
+function decayColor(pct) {
+    return pct > 65 ? '#22c55e' : pct > 35 ? '#d97706' : '#dc2626';
+}
+
+function edgeColor(score) {
+    if (score === null || score === undefined) return '#334155';
+    return score >= 7.5 ? '#22c55e' : score >= 4.5 ? '#d97706' : '#dc2626';
+}
+
+function fmtHours(h) {
+    if (h < 1) return `${Math.round(h * 60)}m`;
+    return `${h.toFixed(1)}h`;
+}
+
+function actionCfg(action) {
+    return ACTION[action] || ACTION.UNKNOWN;
+}
+
+function stateColor(s) {
+    return STATE_COLOR[s] || '#64748b';
+}
+
+// ── RENDER HELPERS ───────────────────────────────────────────────────────────
+
+function renderMTFDots(weekly, daily, recent, expanded = false) {
+    const labels = ['W', 'D', '5D'];
+    const vals   = [weekly, daily, recent];
+    const dots = vals.map((v, i) => `
+        <div class="mtf-dot-group">
+            <div class="mtf-dot" style="background:${MTF_COLOR[v] || '#334155'}" title="${labels[i]}: ${v || 'N/A'}"></div>
+            <span class="mtf-lbl">${labels[i]}</span>
+        </div>
+    `).join('');
+    const label = expanded && weekly ? `<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#475569;margin-left:4px">— ${weekly}/${daily}/${recent}</span>` : '';
+    return `<div class="mtf-dots">${dots}${label}</div>`;
+}
+
+function renderTrapWarning(alert) {
+    if (!alert.trap_conviction || alert.trap_conviction <= 0.4) return '';
+    const reasons = (alert.trap_reasons || []).map(r =>
+        `<div class="trap-reason"><span>→</span><span>${r}</span></div>`
+    ).join('');
+    return `
+        <div class="trap-warning">
+            <div class="trap-warning-title">⚠ POTENTIAL ${alert.trap_type || 'BULL TRAP'} · ${Math.round(alert.trap_conviction * 100)}% conviction</div>
+            ${reasons}
+        </div>
+    `;
+}
+
+function renderEdgeBreakdown(alert) {
+    if (alert.edge_score === null || alert.edge_score === undefined) return '';
+    const score = alert.edge_score;
+    const color = edgeColor(score);
+
+    // Reconstruct edge components from what we have
+    const rows = [
+        ['Signal quality',     score > 5 ? (score - 5) * 0.5 + 0.5 : score * 0.1, 3.5],
+        ['MTF alignment',      alert.mtf_alignment === 'FULL_UP' ? 1.5 : alert.mtf_alignment === 'PARTIAL_UP' ? 0.8 : alert.mtf_alignment === 'CONFLICTED' ? -0.3 : -0.8, 1.5],
+        ['State / regime',     alert.days_in_state >= 14 ? 0.8 : alert.days_in_state >= 7 ? 0.4 : 0.1, 1.2],
+        ['Volume strength',    alert.volume_ratio > 3 ? 0.5 : alert.volume_ratio > 2 ? 0.25 : 0.0, 0.8],
+        ['Trap penalty',       alert.trap_conviction ? -(alert.trap_conviction * 3.0) : 0, 0],
+    ];
+
+    const rowsHtml = rows.map(([label, val, max]) => {
+        const isNeg = val < 0;
+        const barColor = isNeg ? '#dc262650' : val >= 1 ? '#22c55e' : '#3b82f6';
+        const barWidth = max > 0 ? Math.min(Math.abs(val) / max * 100, 100) : Math.min(Math.abs(val) / 3 * 100, 100);
+        return `
+            <div class="edge-row">
+                <div class="edge-row-label" style="color:${isNeg ? '#7f1d1d' : '#334155'}">${label}</div>
+                <div class="edge-bar-track">
+                    <div class="edge-bar-fill" style="width:${barWidth}%;background:${barColor}"></div>
                 </div>
-                <p class="mt-4 text-sm text-[#8A8F98]">Active Tickers Monitored</p>
-                <div class="spotlight-glow"></div>
+                <div class="edge-row-val" style="color:${isNeg ? '#dc2626' : '#475569'}">${val > 0 ? '+' : ''}${val.toFixed(1)}</div>
             </div>
-        </section>
+        `;
+    }).join('');
 
-        <!-- Alert Feed -->
-        <section>
-            <div class="flex items-center justify-between mb-8">
-                <h2 class="text-2xl font-semibold tracking-tight">Active Intelligence</h2>
-                <div class="flex gap-2">
-                    <input type="text" placeholder="Filter ticker..." class="bg-white/[0.05] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-accent transition-colors">
+    return `
+        <div class="edge-breakdown">
+            <div class="edge-breakdown-header">
+                <span class="edge-breakdown-title">EDGE BREAKDOWN</span>
+                <span class="edge-big" style="color:${color}">${score}<span class="edge-denom">/10</span></span>
+            </div>
+            ${rowsHtml}
+        </div>
+    `;
+}
+
+function renderExpandedBody(alert) {
+    const trap = renderTrapWarning(alert);
+    const mtf  = (alert.mtf_weekly || alert.mtf_daily || alert.mtf_recent)
+        ? `<div class="mtf-row">${renderMTFDots(alert.mtf_weekly, alert.mtf_daily, alert.mtf_recent, true)}</div>`
+        : '';
+
+    const details = `
+        <div class="detail-grid">
+            ${alert.regime ? `<div class="detail-block"><div class="detail-label">REGIME</div><div class="detail-value">${alert.regime}</div></div>` : ''}
+            ${alert.days_in_state ? `<div class="detail-block"><div class="detail-label">DAYS IN STATE</div><div class="detail-value">${alert.days_in_state}d</div></div>` : ''}
+            ${alert.prev_state ? `<div class="detail-block"><div class="detail-label">PREVIOUS STATE</div><div class="detail-value">${alert.prev_state}</div></div>` : ''}
+            ${alert.accum_conviction ? `<div class="detail-block"><div class="detail-label">ACCUM CONVICTION</div><div class="detail-value ${alert.accum_conviction > 0.7 ? 'good' : 'mid'}">${Math.round(alert.accum_conviction * 100)}%</div></div>` : ''}
+            ${alert.outcome_pct !== null && alert.outcome_pct !== undefined ? `
+                <div class="detail-block">
+                    <div class="detail-label">OUTCOME</div>
+                    <div class="detail-value ${alert.outcome_pct > 0 ? 'good' : 'bad'}">${alert.outcome_pct > 0 ? '+' : ''}${alert.outcome_pct.toFixed(2)}% · ${alert.outcome_result}</div>
+                </div>` : ''}
+            ${alert.volume_ratio ? `<div class="detail-block"><div class="detail-label">VOLUME RATIO</div><div class="detail-value">${alert.volume_ratio}×</div></div>` : ''}
+        </div>
+    `;
+
+    const edge = renderEdgeBreakdown(alert);
+
+    return `<div class="alert-expanded">${trap}${mtf}${details}${edge}</div>`;
+}
+
+function renderAlert(alert, index) {
+    const a        = actionCfg(alert.action);
+    const sColor   = stateColor(alert.state);
+    const decay    = alert.decay || { pct: 50, status: 'UNKNOWN', hours_old: 0 };
+    const dColor   = decayColor(decay.pct);
+    const eColor   = edgeColor(alert.edge_score);
+    const changed  = alert.prev_state && alert.prev_state !== alert.state && alert.prev_state !== 'UNKNOWN';
+    const hasTrap  = alert.trap_conviction && alert.trap_conviction > 0.4;
+    const isExpanded = expandedId === alert.id;
+
+    const decayLabel = { FRESH: 'Fresh', DECAYING: 'Decaying', DETERIORATING: 'Weakening', EXPIRED: 'Expired', UNKNOWN: '' }[decay.status] || decay.status;
+
+    return `
+        <div class="alert-card${isExpanded ? ' expanded' : ''}" onclick="toggleExpand(${alert.id})" id="alert-${alert.id}">
+            <div class="alert-bar" style="background:linear-gradient(180deg,${a.color},${a.color}30)"></div>
+
+            <div class="decay-wrap">
+                <div class="decay-track">
+                    <div class="decay-fill" style="width:${decay.pct}%;background:${dColor}"></div>
+                </div>
+                <div class="decay-meta">
+                    <span class="decay-text" style="color:${dColor}">${decayLabel.toUpperCase()}${decay.hours_old > 0 ? ' · ' + fmtHours(decay.hours_old) : ''}</span>
                 </div>
             </div>
 
-            <div id="alerts-container" class="space-y-4">
-                <!-- Alerts injected here -->
-                <div class="animate-pulse space-y-4">
-                    <div class="h-32 card-spotlight rounded-2xl"></div>
-                    <div class="h-32 card-spotlight rounded-2xl"></div>
-                </div>
-            </div>
-        </section>
-    </main>
-
-    <script>
-        // Mouse tracking for spotlight effect
-        document.addEventListener('mousemove', e => {
-            document.querySelectorAll('.card-spotlight').forEach(card => {
-                const rect = card.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-                card.style.setProperty('--x', `${x}px`);
-                card.style.setProperty('--y', `${y}px`);
-            });
-        });
-
-        async function fetchData() {
-            try {
-                const [alertsRes, statsRes, regimeRes] = await Promise.all([
-                    fetch('/alerts?limit=20'),
-                    fetch('/stats'),
-                    fetch('/regime')
-                ]);
-
-                const alerts = await alertsRes.json();
-                const stats = await statsRes.json();
-                const regimeData = await regimeRes.json();
-
-                updateStats(stats);
-                updateRegime(regimeData.regime);
-                renderAlerts(alerts);
-            } catch (e) {
-                console.error("Fetch error:", e);
-            }
-        }
-
-        function updateStats(stats) {
-            document.getElementById('stat-profit-factor').innerText = stats.profit_factor || '0.00';
-            document.getElementById('stat-sharpe').innerText = stats.sharpe || '0.00';
-            document.getElementById('stat-win-rate').innerText = `${stats.win_rate || 0}%`;
-            document.getElementById('active-tickers').innerText = stats.total_trades || '0';
-        }
-
-        function updateRegime(regime) {
-            const el = document.getElementById('market-regime');
-            el.innerText = regime;
-            const colors = {
-                'TRENDING': 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-                'RISK_OFF': 'border-red-500/30 bg-red-500/10 text-red-400',
-                'VOLATILE': 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-                'SIDEWAYS': 'border-accent/30 bg-accent/10 text-accent'
-            };
-            el.className = `text-[10px] font-mono tracking-widest uppercase px-2 py-1 rounded-full border ${colors[regime] || colors['SIDEWAYS']}`;
-        }
-
-        function renderAlerts(alerts) {
-            const container = document.getElementById('alerts-container');
-            if (alerts.length === 0) {
-                container.innerHTML = `<div class="p-12 text-center text-[#8A8F98]">No signals detected in the current window.</div>`;
-                return;
-            }
-
-            container.innerHTML = alerts.map(alert => {
-                const actionColor = alert.action === 'ENTER' ? 'text-emerald-400' : (alert.action === 'AVOID' ? 'text-red-400' : 'text-accent');
-                const edgeClass = alert.edge_score >= 8 ? 'border-accent/50 bg-accent/5' : '';
-                
-                return `
-                    <div class="card-spotlight rounded-2xl p-6 group ${edgeClass}">
-                        <div class="flex flex-col md:flex-row gap-6 justify-between">
-                            <div class="flex-1">
-                                <div class="flex items-center gap-3 mb-2">
-                                    <span class="text-2xl font-bold tracking-tight">${alert.ticker}</span>
-                                    <span class="text-[10px] font-mono px-2 py-0.5 rounded border border-white/10 bg-white/5 uppercase">${alert.signal_combination}</span>
-                                    ${alert.edge_score >= 8 ? '<span class="text-[10px] font-mono px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">ELITE SETUP</span>' : ''}
-                                </div>
-                                <p class="text-sm text-[#8A8F98] leading-relaxed max-w-2xl">${alert.summary}</p>
-                                
-                                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
-                                    <div>
-                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Execution</span>
-                                        <span class="text-sm font-semibold ${actionColor}">${alert.action}</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Edge Score</span>
-                                        <span class="text-sm font-semibold">${alert.edge_score.toFixed(1)}/10</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">MTF Context</span>
-                                        <span class="text-sm font-semibold text-[#EDEDEF]">${alert.mtf_alignment.replace('_', ' ')}</span>
-                                    </div>
-                                    <div>
-                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Age</span>
-                                        <div class="flex items-center gap-2 mt-1">
-                                            <div class="w-full bg-white/5 h-1 rounded-full overflow-hidden">
-                                                <div class="bg-accent h-full" style="width: ${alert.decay.pct}%"></div>
-                                            </div>
-                                            <span class="text-[10px] font-mono">${alert.decay.status}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-white/[0.06] pt-4 md:pt-0 md:pl-6">
-                                <div class="space-y-3">
-                                    <div class="flex justify-between text-xs">
-                                        <span class="text-[#8A8F98]">Vol Ratio</span>
-                                        <span class="font-mono text-emerald-400">${alert.volume_ratio}x</span>
-                                    </div>
-                                    <div class="flex justify-between text-xs">
-                                        <span class="text-[#8A8F98]">Outcome</span>
-                                        <span class="font-mono ${alert.outcome_pct > 0 ? 'text-emerald-400' : 'text-red-400'}">
-                                            ${alert.outcome_pct ? alert.outcome_pct.toFixed(1) + '%' : 'PENDING'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <button class="mt-4 w-full py-2 rounded-lg border border-white/10 text-[10px] font-mono uppercase hover:bg-white/5 transition-colors">
-                                    View Analysis
-                                </button>
-                            </div>
-                        </div>
-                        <div class="spotlight-glow"></div>
+            <div class="alert-header">
+                <div class="alert-left">
+                    <span class="alert-ticker">${alert.ticker}</span>
+                    <div class="action-badge" style="background:${a.bg};border:1px solid ${a.border};color:${a.color}">
+                        ${a.icon} ${alert.action || '—'}
                     </div>
-                `;
-            }).join('');
-        }
+                    ${alert.signal_combination ? `<span class="combo-badge">${alert.signal_combination.replace(/_/g,' ')}</span>` : ''}
+                    ${hasTrap ? `<span class="trap-pill">⚠ TRAP RISK</span>` : ''}
+                    ${renderMTFDots(alert.mtf_weekly, alert.mtf_daily, alert.mtf_recent)}
+                </div>
+                <div class="alert-right">
+                    ${alert.edge_score !== null && alert.edge_score !== undefined
+                        ? `<span class="edge-num" style="color:${eColor}">${alert.edge_score}<span class="edge-denom">/10</span></span>`
+                        : ''}
+                    <span class="alert-time">${alert.date}</span>
+                </div>
+            </div>
 
-        function triggerDetection() {
-            fetch('/trigger')
-                .then(() => {
-                    alert("Pulse triggered. Analyzing global markets...");
-                    setTimeout(fetchData, 3000);
-                });
-        }
+            ${(alert.state || alert.prev_state) ? `
+            <div class="state-row">
+                ${changed ? `
+                    <span class="state-pill" style="color:${stateColor(alert.prev_state)};background:${stateColor(alert.prev_state)}18">${alert.prev_state}</span>
+                    <span class="state-arrow">→</span>
+                    <span class="state-pill" style="color:${sColor};background:${sColor}18">${alert.state}</span>
+                ` : `
+                    <span class="state-pill" style="color:${sColor};background:${sColor}18">${alert.state}${alert.days_in_state ? ' · ' + alert.days_in_state + 'd' : ''}</span>
+                `}
+            </div>` : ''}
 
-        // Initial load and poll
-        fetchData();
-        setInterval(fetchData, 60000);
-    </script>
+            ${alert.summary ? `<div class="alert-summary">${alert.summary}</div>` : ''}
+
+            ${isExpanded ? renderExpandedBody(alert) : ''}
+        </div>
+    `;
+}
+
+function toggleExpand(id) {
+    expandedId = expandedId === id ? null : id;
+    renderFeed(window._alerts || []);
+}
+
+// ── RENDER FEED ──────────────────────────────────────────────────────────────
+
+function renderFeed(alerts) {
+    window._alerts = alerts;
+    const container = document.getElementById('alerts-container');
+    const meta      = document.getElementById('feed-meta');
+
+    if (!alerts.length) {
+        container.innerHTML = `
+            <div style="border:1px dashed #0a1628;border-radius:10px;padding:60px;text-align:center">
+                <div style="font-size:28px;color:#0a1628;margin-bottom:16px">◌</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#1e3a5f;letter-spacing:0.14em">SILENCE AS SIGNAL</div>
+                <p style="font-size:13px;color:#1e3a5f;margin-top:10px;font-style:italic">No signals today. Staying out is correct.</p>
+            </div>`;
+        meta.textContent = '0 alerts';
+        return;
+    }
+
+    // Split: actionable vs supplementary
+    const actionable = alerts.filter(a => a.action && ['ENTER','WAIT','AVOID'].includes(a.action) && !a.outcome_result);
+    const rest       = alerts.filter(a => !actionable.includes(a));
+
+    let html = '';
+
+    if (actionable.length) {
+        html += `<div class="divider-label">ACTIVE SIGNALS</div>`;
+        html += actionable.map((a, i) => renderAlert(a, i)).join('');
+    }
+
+    if (rest.length) {
+        html += `<div class="divider-label" style="margin-top:20px">HISTORICAL</div>`;
+        html += rest.slice(0, 20).map((a, i) => renderAlert(a, i)).join('');
+    }
+
+    container.innerHTML = html;
+    meta.textContent = `${alerts.length} alerts · ${actionable.length} active`;
+}
+
+// ── FETCH ────────────────────────────────────────────────────────────────────
+
+async function fetchAll() {
+    try {
+        const [alertsRes, statsRes, regimeRes] = await Promise.all([
+            fetch('/alerts?limit=50'),
+            fetch('/stats'),
+            fetch('/regime'),
+        ]);
+        const alerts = await alertsRes.json();
+        const stats  = await statsRes.json();
+        const regime = await regimeRes.json();
+
+        // Stats
+        document.getElementById('s-pf').textContent     = stats.profit_factor ?? '—';
+        document.getElementById('s-sharpe').textContent  = stats.sharpe ?? '—';
+        document.getElementById('s-wr').textContent      = stats.win_rate ? `${stats.win_rate}%` : '—';
+        document.getElementById('s-trades').textContent  = stats.total_trades ?? '0';
+        document.getElementById('scan-status').textContent = `Live · ${new Set(alerts.map(a => a.ticker)).size} assets`;
+
+        // Regime
+        const r = regime.regime || 'UNKNOWN';
+        const regimeColors = {
+            TRENDING: '#22c55e', RISK_OFF: '#dc2626', VOLATILE: '#d97706', SIDEWAYS: '#5E6AD2', UNKNOWN: '#475569'
+        };
+        document.getElementById('regime-label').textContent = `REGIME: ${r}`;
+        document.getElementById('regime-label').style.color = regimeColors[r] || '#5E6AD2';
+        document.getElementById('regime-desc').textContent  = REGIME_DESC[r] || '';
+
+        // Feed
+        renderFeed(alerts);
+    } catch(e) {
+        console.error('Fetch error:', e);
+    }
+}
+
+async function runPulse() {
+    const btn = document.querySelector('.btn-primary');
+    btn.textContent = 'Scanning...';
+    btn.disabled = true;
+    try {
+        await fetch('/trigger');
+        setTimeout(() => {
+            fetchAll();
+            btn.textContent = 'Run Pulse';
+            btn.disabled = false;
+        }, 4000);
+    } catch(e) {
+        btn.textContent = 'Run Pulse';
+        btn.disabled = false;
+    }
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+fetchAll();
+setInterval(fetchAll, 60000);
+</script>
 </body>
 </html>
