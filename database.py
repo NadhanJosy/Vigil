@@ -43,22 +43,20 @@ def init_db():
     print("Database ready")
 
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
-    conn, db_type = get_conn()
+    conn = get_conn()
     cursor = conn.cursor()
     
-    ph = "%s" if db_type == "postgres" else "?"
+    cursor.execute("""
+        SELECT id FROM alerts WHERE ticker = %s AND date = %s
+    """, (ticker, str(date)))
     
-    cursor.execute(
-        f"SELECT id FROM alerts WHERE ticker = {ph} AND date = {ph}",
-        (ticker, str(date))
-    )
     existing = cursor.fetchone()
     
     if not existing:
-        cursor.execute(f"""
+        cursor.execute("""
             INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state)
-            VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph})
-        """, (ticker, str(date), volume_ratio, change_pct, signal_type, state))
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (ticker, str(date), float(volume_ratio), float(change_pct), signal_type, state))
         conn.commit()
     
     conn.close()
