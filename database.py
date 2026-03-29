@@ -30,7 +30,11 @@ def init_db():
             trap_reasons TEXT,
             accum_conviction REAL,
             accum_days INTEGER,
-            accum_price_range_pct REAL
+            accum_price_range_pct REAL,
+            mtf_weekly TEXT,
+            mtf_daily TEXT,
+            mtf_recent TEXT,
+            mtf_alignment TEXT
         )
     """)
     for col, typedef in [
@@ -43,6 +47,10 @@ def init_db():
         ("accum_conviction",      "REAL"),
         ("accum_days",            "INTEGER"),
         ("accum_price_range_pct", "REAL"),
+        ("mtf_weekly",            "TEXT"),
+        ("mtf_daily",             "TEXT"),
+        ("mtf_recent",            "TEXT"),
+        ("mtf_alignment",         "TEXT"),
     ]:
         cursor.execute(f"ALTER TABLE alerts ADD COLUMN IF NOT EXISTS {col} {typedef}")
     conn.commit()
@@ -51,18 +59,22 @@ def init_db():
 
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
                trap_conviction=None, trap_type=None, trap_reasons=None,
-               accum_conviction=None, accum_days=None, accum_price_range_pct=None):
+               accum_conviction=None, accum_days=None, accum_price_range_pct=None,
+               mtf_weekly=None, mtf_daily=None, mtf_recent=None, mtf_alignment=None):
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT id FROM alerts WHERE ticker = %s AND date = %s AND signal_type = %s",
-                   (ticker, str(date), signal_type))
+    cursor.execute(
+        "SELECT id FROM alerts WHERE ticker = %s AND date = %s AND signal_type = %s",
+        (ticker, str(date), signal_type)
+    )
     if not cursor.fetchone():
         cursor.execute("""
             INSERT INTO alerts (
                 ticker, date, volume_ratio, change_pct, signal_type, state,
                 trap_conviction, trap_type, trap_reasons,
-                accum_conviction, accum_days, accum_price_range_pct
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                accum_conviction, accum_days, accum_price_range_pct,
+                mtf_weekly, mtf_daily, mtf_recent, mtf_alignment
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """, (
             ticker, str(date),
             float(volume_ratio) if volume_ratio is not None else None,
@@ -70,9 +82,8 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
             signal_type, state,
             trap_conviction, trap_type,
             json.dumps(trap_reasons) if trap_reasons else None,
-            accum_conviction,
-            accum_days,
-            accum_price_range_pct
+            accum_conviction, accum_days, accum_price_range_pct,
+            mtf_weekly, mtf_daily, mtf_recent, mtf_alignment
         ))
         conn.commit()
     conn.close()
@@ -83,7 +94,8 @@ def get_all_alerts():
     cursor.execute("""
         SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
                outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons,
-               accum_conviction, accum_days, accum_price_range_pct
+               accum_conviction, accum_days, accum_price_range_pct,
+               mtf_weekly, mtf_daily, mtf_recent, mtf_alignment
         FROM alerts ORDER BY date DESC
     """)
     rows = cursor.fetchall()

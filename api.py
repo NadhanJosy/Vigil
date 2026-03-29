@@ -40,6 +40,10 @@ def alerts():
             "accum_conviction": row[12],
             "accum_days": row[13],
             "accum_price_range_pct": row[14],
+            "mtf_weekly": row[15],
+            "mtf_daily": row[16],
+            "mtf_recent": row[17],
+            "mtf_alignment": row[18],
         })
     return jsonify(result)
 
