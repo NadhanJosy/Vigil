@@ -44,6 +44,36 @@ def init_db():
     conn.close()
     print("Database ready")
 
+def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
+               trap_conviction=None, trap_type=None, trap_reasons=None):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM alerts WHERE ticker = %s AND date = %s", (ticker, str(date)))
+    if not cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state,
+                                trap_conviction, trap_type, trap_reasons)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            ticker, str(date), float(volume_ratio), float(change_pct), signal_type, state,
+            trap_conviction, trap_type,
+            json.dumps(trap_reasons) if trap_reasons else None
+        ))
+        conn.commit()
+    conn.close()
+
+def get_all_alerts():
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
+               outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons
+        FROM alerts ORDER BY date DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
 def evaluate_outcomes():
     import yfinance as yf
     from datetime import datetime, timedelta
@@ -78,39 +108,9 @@ def evaluate_outcomes():
             cursor.execute("""
                 UPDATE alerts SET outcome_pct = %s, outcome_days = %s, outcome_result = %s
                 WHERE id = %s
-            """, (round(outcome_pct, 2), days, result, id))
+            """, (float(round(outcome_pct, 2)), int(days), result, id))
         except Exception as e:
             print(f"Outcome eval error for {ticker}: {e}")
 
     conn.commit()
     conn.close()
-
-def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
-               trap_conviction=None, trap_type=None, trap_reasons=None):
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id FROM alerts WHERE ticker = %s AND date = %s", (ticker, str(date)))
-    if not cursor.fetchone():
-        cursor.execute("""
-            INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state,
-                                trap_conviction, trap_type, trap_reasons)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            ticker, str(date), float(volume_ratio), float(change_pct), signal_type, state,
-            trap_conviction, trap_type,
-            json.dumps(trap_reasons) if trap_reasons else None
-        ))
-        conn.commit()
-    conn.close()
-
-def get_all_alerts():
-    conn = get_conn()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state,
-               outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons
-        FROM alerts ORDER BY date DESC
-    """)
-    rows = cursor.fetchall()
-    conn.close()
-    return rows
