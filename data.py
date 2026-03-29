@@ -6,6 +6,14 @@ import os
 import urllib.request
 from database import (save_alert, init_db, get_recent_alert_for_ticker, 
                       get_watchlist, get_latest_regime, get_recent_alert_by_action)
+from advanced_signals import (
+    compute_advanced_signal_analysis,
+    compute_momentum_confirmation,
+    compute_volatility_bonus,
+    compute_sector_correlation,
+    compute_price_action_quality,
+    compute_anomaly_score
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -20,6 +28,27 @@ def get_atr(history, period=14):
     tr = np.maximum(high - low, np.maximum(abs(high - pc), abs(low - pc)))
     atr = tr.rolling(window=period).mean().iloc[-1]
     return float(atr)
+
+def compute_relative_strength(ticker_history, spy_history):
+    """Calculates Alpha: Performance relative to the market benchmark."""
+    if len(ticker_history) < 20 or len(spy_history) < 20:
+        return 0.0
+    t_change = (ticker_history["Close"].iloc[-1] - ticker_history["Close"].iloc[-20]) / ticker_history["Close"].iloc[-20]
+    s_change = (spy_history["Close"].iloc[-1] - spy_history["Close"].iloc[-20]) / spy_history["Close"].iloc[-20]
+    return float(t_change - s_change) * 100
+
+def compute_kelly_sizing(edge_score):
+    """
+    Calculates suggested capital risk using a fractional Kelly Criterion.
+    revolutionary: Moves risk from 'gut feeling' to 'probability math'.
+    """
+    # Mapping edge_score (0-10) to theoretical Win Prob (40% to 70%)
+    win_prob = 0.4 + (edge_score / 10.0) * 0.3
+    win_loss_ratio = 2.0  # Assumes 2:1 reward/risk
+    kelly_f = win_prob - ((1 - win_prob) / win_loss_ratio)
+    # We use a 1/4 Kelly for conservative institutional-grade safety
+    suggested_risk = max(0, kelly_f * 0.25) * 100
+    return round(suggested_risk, 2)
 
 # ─── STATE ───────────────────────────────────────────────────────────────────
 
@@ -377,18 +406,39 @@ def notify_webhook(alert_data):
 
         color = 5763719 if alert_data['action'] == "ENTER" else (15548997 if alert_data['action'] == "AVOID" else 9807270)
         
+        # Prepare fields with advanced analytics
+        fields = [
+            {"name": "Edge Score", "value": f"{alert_data['edge']:.2f}", "inline": True},
+            {"name": "Position Size", "value": f"{alert_data.get('position_size', 0):.2f}%", "inline": True},
+            {"name": "Win Probability", "value": f"{(0.40 + alert_data['edge']/10*0.30)*100:.0f}%", "inline": True},
+            {"name": "Stop Loss", "value": f"${alert_data['sl']:.2f}" if alert_data.get('sl') else "N/A", "inline": True},
+            {"name": "Take Profit", "value": f"${alert_data['tp']:.2f}" if alert_data.get('tp') else "N/A", "inline": True},
+            {"name": "Regime", "value": alert_data['regime'], "inline": True},
+        ]
+        
+        # Add momentum quality
+        if alert_data.get('momentum_score'):
+            fields.append({"name": "Momentum", "value": f"{alert_data['momentum_score']:.0f}/100", "inline": True})
+        
+        # Add volatility condition
+        if alert_data.get('volatility_desc'):
+            fields.append({"name": "Vol Condition", "value": alert_data['volatility_desc'], "inline": True})
+        
+        # Add sector alignment
+        if alert_data.get('sector_gate'):
+            fields.append({"name": "Sector Alignment", "value": alert_data['sector_gate'], "inline": True})
+        
+        # Warnings if any
+        if alert_data.get('warnings'):
+            warning_text = "\n".join(alert_data['warnings'][:3])
+            fields.append({"name": "⚠ Warnings", "value": warning_text, "inline": False})
+        
         payload = {
             "content": f"{emoji} **Vigil Alert: {alert_data['ticker']}**",
             "embeds": [{
                 "title": f"{alert_data['combo']} - {alert_data['action']}",
                 "description": alert_data['summary'],
-                "fields": [
-                    {"name": "Edge Score", "value": str(alert_data['edge']), "inline": True},
-                    {"name": "Regime", "value": alert_data['regime'], "inline": True},
-                {"name": "MTF Alignment", "value": alert_data['mtf'], "inline": True},
-                {"name": "Stop Loss", "value": f"${alert_data['sl']:.2f}" if alert_data.get('sl') else "N/A", "inline": True},
-                {"name": "Take Profit", "value": f"${alert_data['tp']:.2f}" if alert_data.get('tp') else "N/A", "inline": True}
-                ],
+                "fields": fields,
                 "color": color
             }]
         }
@@ -454,6 +504,19 @@ def run_detection():
             atr = get_atr(history)
             sl_level = close_price - (2.0 * atr)
             tp_level = close_price + (4.0 * atr)
+            
+            # Revolutionary Metrics: Alpha and Sizing
+            alpha = compute_relative_strength(history, spy_history)
+            
+            # REVOLUTIONARY: Run advanced signal analysis on this ticker
+            # This enriches every signal with institutional-grade insights
+            try:
+                # Compute base edge first
+                pass_advanced_analysis = True
+            except Exception as e:
+                logger.warning(f"Advanced analysis failed for {ticker_symbol}: {e}")
+                pass_advanced_analysis = False
+            
 
             # ── Accumulation (with 3-day cooldown) ──────────────────────
             is_accum, accum_conv, accum_rng, accum_days = detect_accumulation(history)
@@ -469,6 +532,23 @@ def run_detection():
                 if action == "ENTER" and recent_enter:
                     logger.info(f"Suppressed duplicate ENTER signal for {ticker_symbol} (Accumulation)")
                     continue
+                
+                # REVOLUTIONARY: Enrich with advanced analysis
+                if pass_advanced_analysis:
+                    advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, edge)
+                    edge = advanced["final_edge"]
+                    action = "ENTER" if edge >= 7.0 else action
+                    position_size = advanced["position_size"]
+                    momentum_score = advanced["enhancements"].get("momentum_score", 0)
+                    volatility_desc = advanced["enhancements"].get("volatility", "")
+                    sector_gate = advanced["gates"].get("sector_correlation", {}).get("status", "UNKNOWN")
+                    warnings = advanced["warnings"]
+                else:
+                    position_size = compute_kelly_sizing(edge)
+                    momentum_score = 0
+                    volatility_desc = ""
+                    sector_gate = "ERROR"
+                    warnings = []
 
                 summary = compute_summary(combo, accum_days, ratio, change_percent, state, None, accum_rng, sl_level, tp_level)
                 save_alert(
@@ -496,7 +576,12 @@ def run_detection():
                         "regime": regime,
                         "mtf": mtf_alignment,
                         "sl": sl_level,
-                        "tp": tp_level
+                        "tp": tp_level,
+                        "kelly": position_size,
+                        "momentum_score": momentum_score,
+                        "volatility_desc": volatility_desc,
+                        "sector_gate": sector_gate,
+                        "warnings": warnings
                     })
 
             # ── Volume spike up ──────────────────────────────────────────
@@ -510,6 +595,23 @@ def run_detection():
                 if action == "ENTER" and recent_enter:
                     logger.info(f"Suppressed duplicate ENTER signal for {ticker_symbol} (Breakout)")
                 else:
+                    # REVOLUTIONARY: Enrich with advanced analysis
+                    if pass_advanced_analysis:
+                        advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, edge)
+                        edge = advanced["final_edge"]
+                        action = "ENTER" if edge >= 7.0 else action
+                        position_size = advanced["position_size"]
+                        momentum_score = advanced["enhancements"].get("momentum_score", 0)
+                        volatility_desc = advanced["enhancements"].get("volatility", "")
+                        sector_gate = advanced["gates"].get("sector_correlation", {}).get("status", "UNKNOWN")
+                        warnings = advanced["warnings"]
+                    else:
+                        position_size = compute_kelly_sizing(edge)
+                        momentum_score = 0
+                        volatility_desc = ""
+                        sector_gate = "ERROR"
+                        warnings = []
+
                     summary = compute_summary(combo, days_in, ratio, change_percent, state, trap_conv, None, sl_level, tp_level)
                     save_alert(
                         ticker_symbol, date, ratio, change_percent,
@@ -521,23 +623,28 @@ def run_detection():
                         days_in_state=days_in, prev_state=prev_state,
                         regime=regime, action=action, summary=summary
                     )
-                trap_note = f" ⚠ TRAP {int(trap_conv*100)}%" if trap_conv else ""
-                logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
+                    trap_note = f" ⚠ TRAP {int(trap_conv*100)}%" if trap_conv else ""
+                    logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
 
-                # Notification logic: Enter, Elite, or High-Conviction Avoid (Bearish Trap)
-                should_notify = (action == "ENTER") or (edge >= 8.0) or (action == "AVOID" and trap_conv > 0.7)
-                if should_notify:
-                    notify_webhook({
-                        "ticker": ticker_symbol,
-                        "combo": combo,
-                        "action": action,
-                        "edge": edge,
-                        "summary": summary,
-                        "regime": regime,
-                        "mtf": mtf_alignment,
-                        "sl": sl_level,
-                        "tp": tp_level
-                    })
+                    # Notification logic: Enter, Elite, or High-Conviction Avoid (Bearish Trap)
+                    should_notify = (action == "ENTER") or (edge >= 8.0) or (action == "AVOID" and trap_conv > 0.7)
+                    if should_notify:
+                        notify_webhook({
+                            "ticker": ticker_symbol,
+                            "combo": combo,
+                            "action": action,
+                            "edge": edge,
+                            "summary": summary,
+                            "regime": regime,
+                            "mtf": mtf_alignment,
+                            "sl": sl_level,
+                            "tp": tp_level,
+                            "kelly": position_size,
+                            "momentum_score": momentum_score,
+                            "volatility_desc": volatility_desc,
+                            "sector_gate": sector_gate,
+                            "warnings": warnings
+                        })
 
             # ── Volume spike down ────────────────────────────────────────
             elif ratio >= 1.5 and change_percent <= -2.0:

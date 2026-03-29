@@ -28,6 +28,8 @@ def init_db():
             outcome_pct REAL,
             outcome_days INTEGER,
             outcome_result TEXT,
+            max_adverse_excursion REAL,
+            max_favorable_excursion REAL,
             trap_conviction REAL,
             trap_type TEXT,
             trap_reasons TEXT,
@@ -52,6 +54,8 @@ def init_db():
         ("outcome_pct",           "REAL"),
         ("outcome_days",          "INTEGER"),
         ("outcome_result",        "TEXT"),
+        ("max_adverse_excursion", "REAL"),
+        ("max_favorable_excursion", "REAL"),
         ("trap_conviction",       "REAL"),
         ("trap_type",             "TEXT"),
         ("trap_reasons",          "TEXT"),
@@ -248,6 +252,13 @@ def evaluate_outcomes():
             exit_price  = float(history["Close"].iloc[-1])
             outcome_pct = (exit_price - entry_price) / entry_price * 100
             days = len(history)
+            
+            # Institutional MAE/MFE Calculation
+            lows = history["Low"].astype(float)
+            highs = history["High"].astype(float)
+            mae = ((lows.min() - entry_price) / entry_price) * 100
+            mfe = ((highs.max() - entry_price) / entry_price) * 100
+
             if signal_type == "ACCUMULATION_DETECTED":
                 result = "WIN" if abs(outcome_pct) > 5.0 else "LOSS"
             elif signal_type == "VOLUME_SPIKE_UP":
@@ -255,9 +266,11 @@ def evaluate_outcomes():
             else:
                 result = "WIN" if outcome_pct < -1.0 else "LOSS"
             cursor.execute("""
-                UPDATE alerts SET outcome_pct = %s, outcome_days = %s, outcome_result = %s
+                UPDATE alerts SET outcome_pct = %s, outcome_days = %s, outcome_result = %s,
+                                  max_adverse_excursion = %s, max_favorable_excursion = %s
                 WHERE id = %s
-            """, (float(round(outcome_pct, 2)), int(days), result, id))
+            """, (float(round(outcome_pct, 2)), int(days), result, 
+                  float(round(mae, 2)), float(round(mfe, 2)), id))
         except Exception as e:
             logger.error(f"Outcome eval error for {ticker}: {e}")
 
