@@ -1,7 +1,7 @@
 import os
 from flask import Flask, jsonify, send_from_directory
 from database import init_db, get_all_alerts, save_alert
-from data import run_detection
+from data import run_detection, run_backfill
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 
@@ -43,30 +43,8 @@ def trigger():
 
 @app.route("/backfill")
 def backfill():
-    import yfinance as yf
-    tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
-    saved = 0
-    
-    for ticker_symbol in tickers:
-        ticker = yf.Ticker(ticker_symbol)
-        history = ticker.history(period="30d")
-        average_volume = history["Volume"].mean()
-        
-        for i in range(len(history)):
-            date = history.index[i].date()
-            ratio = history["Volume"].iloc[i] / average_volume
-            open_price = history["Open"].iloc[i]
-            close_price = history["Close"].iloc[i]
-            change_percent = (close_price - open_price) / open_price * 100
-            
-            if ratio >= 1.5 and change_percent >= 2.0:
-                save_alert(ticker_symbol, date, ratio, change_percent, "VOLUME_SPIKE_UP", "TRENDING_UP")
-                saved += 1
-            elif ratio >= 1.5 and change_percent <= -2.0:
-                save_alert(ticker_symbol, date, ratio, change_percent, "VOLUME_SPIKE_DOWN", "TRENDING_DOWN")
-                saved += 1
-    
-    return jsonify({"status": "backfill complete", "alerts_saved": saved})
+    run_backfill()
+    return jsonify({"status": "backfill complete"})
 
 @app.route("/evaluate")
 def evaluate():
