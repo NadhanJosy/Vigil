@@ -121,7 +121,7 @@ def compute_mtf(history):
 
 # ─── TRAP DETECTION ──────────────────────────────────────────────────────────
 
-def assess_trap(history, signal_type, volume_ratio, state):
+def assess_trap(history, signal_type, volume_ratio, state, regime="UNKNOWN"):
     if signal_type != "VOLUME_SPIKE_UP" or state != "BREAKOUT":
         return None, None, []
     reasons = []
@@ -134,15 +134,20 @@ def assess_trap(history, signal_type, volume_ratio, state):
         reasons.append(f"Volume spike ({local_ratio:.1f}x 20d avg) lacks local conviction")
         penalty += 1.2
 
-    # 2. RSI Overbought/Exhaustion (14-period)
+    # 2. RSI Overbought/Exhaustion (14-period) - REGIME AWARE
     delta = history["Close"].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     rsi = (100 - (100 / (1 + rs))).iloc[-1]
     if rsi > 75:
-        reasons.append(f"RSI {rsi:.1f} indicates momentum exhaustion/overbought")
-        penalty += 1.0
+        # Scale penalty based on market regime
+        # In TRENDING markets, high RSI is normal (lower penalty)
+        # In SIDEWAYS/RISK_OFF, high RSI is a warning (higher penalty)
+        regime_multiplier = {"TRENDING": 0.5, "SIDEWAYS": 1.5, "RISK_OFF": 1.3, "VOLATILE": 1.2}.get(regime, 1.0)
+        rsi_penalty = 1.0 * regime_multiplier
+        reasons.append(f"RSI {rsi:.1f} indicates momentum exhaustion/overbought (regime: {regime})")
+        penalty += rsi_penalty
 
     # 3. Resistance level testing (30-day window)
     hist_30d = history.iloc[-31:]
@@ -373,7 +378,7 @@ def notify_webhook(alert_data):
     try:
         req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), 
                                      headers={'Content-Type': 'application/json'})
-        urllib.request.urlopen(req)
+        urllib.request.urlopen(req, timeout=10)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
 
@@ -460,7 +465,7 @@ def run_detection():
 
             # ── Volume spike up ──────────────────────────────────────────
             if ratio >= 1.5 and change_percent >= 2.0:
-                trap_conv, trap_type, trap_reasons = assess_trap(history, "VOLUME_SPIKE_UP", ratio, state)
+                trap_conv, trap_type, trap_reasons = assess_trap(history, "VOLUME_SPIKE_UP", ratio, state, regime)
                 combo   = compute_signal_combination("VOLUME_SPIKE_UP", state, trap_conv, has_recent_accum)
                 edge    = compute_edge_score(combo, mtf_alignment, trap_conv, ratio, days_in,
                                              accum_conv if has_recent_accum else None)
@@ -565,7 +570,7 @@ def run_backfill():
                 )
 
             if ratio >= 1.5 and change_percent >= 2.0:
-                trap_conv, trap_type, trap_reasons = assess_trap(window, "VOLUME_SPIKE_UP", ratio, state)
+                trap_conv, trap_type, trap_reasons = assess_trap(window, "VOLUME_SPIKE_UP", ratio, state, regime)
                 combo   = compute_signal_combination("VOLUME_SPIKE_UP", state, trap_conv, has_recent_accum)
                 edge    = compute_edge_score(combo, mtf_alignment, trap_conv, ratio, days_in,
                                              accum_conv if has_recent_accum else None)

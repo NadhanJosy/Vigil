@@ -220,9 +220,10 @@ def evaluate_outcomes():
         alert_date = datetime.strptime(date_str, "%Y-%m-%d")
         eval_days  = 10 if signal_type == "ACCUMULATION_DETECTED" else 5
         eval_date  = alert_date + timedelta(days=eval_days)
-        if eval_date > datetime.now():
+        if eval_date >= datetime.now():
             continue
         try:
+            logger.info(f"Evaluating outcome for {ticker} from {date_str}")
             tk = yf.Ticker(ticker)
             history = tk.history(start=date_str, end=eval_date.strftime("%Y-%m-%d"))
             if len(history) < 2:
