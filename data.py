@@ -50,10 +50,6 @@ def run_detection():
         except Exception as e:
             print(f"{ticker_symbol} — ERROR: {e}")
 
-print("\n--- ALERTS IN DATABASE ---")
-alerts = get_all_alerts()
-for alert in alerts:
-    print(alert)
 
 if __name__ == "__main__":
     run_detection()
