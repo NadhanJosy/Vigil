@@ -13,19 +13,74 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id SERIAL PRIMARY KEY,
-            ticker TEXT,
-            date TEXT,
-            volume_ratio REAL,
-            change_pct REAL,
-            signal_type TEXT,
-            state TEXT
-        )
-    """)
+    CREATE TABLE IF NOT EXISTS alerts (
+        id SERIAL PRIMARY KEY,
+        ticker TEXT,
+        date TEXT,
+        volume_ratio REAL,
+        change_pct REAL,
+        signal_type TEXT,
+        state TEXT,
+        outcome_pct REAL,
+        outcome_days INTEGER,
+        outcome_result TEXT
+    )
+""")
     conn.commit()
     conn.close()
     print("Database ready")
+
+def evaluate_outcomes():
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    
+    conn = get_conn()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, ticker, date, signal_type 
+        FROM alerts 
+        WHERE outcome_result IS NULL
+    """)
+    
+    pending = cursor.fetchall()
+    
+    for row in pending:
+        id, ticker, date_str, signal_type = row
+        alert_date = datetime.strptime(date_str, "%Y-%m-%d")
+        eval_date = alert_date + timedelta(days=5)
+        
+        if eval_date > datetime.now():
+            continue
+        
+        try:
+            tk = yf.Ticker(ticker)
+            history = tk.history(start=date_str, end=eval_date.strftime("%Y-%m-%d"))
+            
+            if len(history) < 2:
+                continue
+            
+            entry_price = history["Close"].iloc[0]
+            exit_price = history["Close"].iloc[-1]
+            outcome_pct = (exit_price - entry_price) / entry_price * 100
+            days = len(history)
+            
+            if signal_type == "VOLUME_SPIKE_UP":
+                result = "WIN" if outcome_pct > 1.0 else "LOSS"
+            else:
+                result = "WIN" if outcome_pct < -1.0 else "LOSS"
+            
+            cursor.execute("""
+                UPDATE alerts 
+                SET outcome_pct = %s, outcome_days = %s, outcome_result = %s
+                WHERE id = %s
+            """, (round(outcome_pct, 2), days, result, id))
+            
+        except Exception as e:
+            print(f"Outcome eval error for {ticker}: {e}")
+    
+    conn.commit()
+    conn.close()
 
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
     conn = get_conn()
@@ -43,7 +98,7 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
 def get_all_alerts():
     conn = get_conn()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM alerts ORDER BY date DESC")
+    cursor.execute("SELECT id, ticker, date, volume_ratio, change_pct, signal_type, state, outcome_pct, outcome_result FROM alerts ORDER BY date DESC")
     rows = cursor.fetchall()
     conn.close()
     return rows

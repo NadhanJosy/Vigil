@@ -30,7 +30,9 @@ def alerts():
             "volume_ratio": round(row[3], 2),
             "change_pct": round(row[4], 2),
             "signal_type": row[5],
-            "state": row[6] if len(row) > 6 else "UNKNOWN"
+            "state": row[6] if len(row) > 6 else "UNKNOWN",
+            "outcome_pct": round(row[7], 2) if row[7] is not None else None,
+            "outcome_result": row[8] if len(row) > 8 else None
         })
     return jsonify(result)
 
@@ -65,6 +67,12 @@ def backfill():
                 saved += 1
     
     return jsonify({"status": "backfill complete", "alerts_saved": saved})
+
+@app.route("/evaluate")
+def evaluate():
+    from database import evaluate_outcomes
+    evaluate_outcomes()
+    return jsonify({"status": "outcomes evaluated"})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
