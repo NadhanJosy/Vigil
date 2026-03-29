@@ -1,12 +1,20 @@
-import sqlite3
+import os
+import psycopg2
+
+def get_conn():
+    db_url = os.environ.get("DATABASE_URL")
+    if db_url:
+        return psycopg2.connect(db_url)
+    else:
+        raise Exception("No DATABASE_URL found")
 
 def init_db():
-    conn = sqlite3.connect("vigil.db")
+    conn = get_conn()
     cursor = conn.cursor()
     
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS alerts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             ticker TEXT,
             date TEXT,
             volume_ratio REAL,
@@ -18,14 +26,14 @@ def init_db():
     
     conn.commit()
     conn.close()
+    print("Database ready")
 
-init_db()
 def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
-    conn = sqlite3.connect("vigil.db")
+    conn = get_conn()
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT id FROM alerts WHERE ticker = ? AND date = ?
+        SELECT id FROM alerts WHERE ticker = %s AND date = %s
     """, (ticker, str(date)))
     
     existing = cursor.fetchone()
@@ -33,20 +41,19 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
     if not existing:
         cursor.execute("""
             INSERT INTO alerts (ticker, date, volume_ratio, change_pct, signal_type, state)
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """, (ticker, str(date), volume_ratio, change_pct, signal_type, state))
         conn.commit()
     
     conn.close()
-    
-print("Database ready")
 
 def get_all_alerts():
-    conn = sqlite3.connect("vigil.db")
+    conn = get_conn()
     cursor = conn.cursor()
     
-    cursor.execute("SELECT * FROM alerts")
+    cursor.execute("SELECT * FROM alerts ORDER BY date DESC")
     rows = cursor.fetchall()
     
     conn.close()
     return rows
+
