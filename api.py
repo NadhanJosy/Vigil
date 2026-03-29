@@ -5,7 +5,7 @@ import threading
 from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, request
 from database import (init_db, get_alerts, save_alert, 
-                      add_to_watchlist, remove_from_watchlist, get_watchlist)
+                      add_to_watchlist, remove_from_watchlist, get_watchlist, get_system_metrics)
 from data import run_detection, run_backfill, compute_regime
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
@@ -89,10 +89,14 @@ def alerts():
             "signal_combination":    row[20],
             "edge_score":            row[21],
             "days_in_state":         row[22],
-            "prev_state":            row[23],
-            "regime":                row[24],
-            "action":                row[25],
-            "summary":               row[26],
+            "adx_strength":          row[23],
+            "momentum_score":        row[24],
+            "volatility_desc":       row[25],
+            "sector_gate":           row[26],
+            "prev_state":            row[27],
+            "regime":                row[28],
+            "action":                row[29],
+            "summary":               row[30],
         })
     return jsonify(result)
 
@@ -115,6 +119,10 @@ def trigger():
 def backfill():
     threading.Thread(target=run_backfill).start()
     return jsonify({"status": "backfill started in background"})
+
+@app.route("/stats")
+def stats():
+    return jsonify(get_system_metrics())
 
 @app.route("/evaluate")
 def evaluate():

@@ -1,624 +1,304 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="bg-[#050506] text-[#EDEDEF] antialiased">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vigil Trading Assistant</title>
+    <title>Vigil // Institutional Intelligence</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['Geist Mono', 'monospace'] },
+                    colors: {
+                        accent: '#5E6AD2',
+                        'accent-bright': '#6872D9',
+                        'bg-base': '#050506',
+                        'bg-deep': '#020203',
+                        'border-default': 'rgba(255,255,255,0.06)',
+                    },
+                    animation: {
+                        'pulse-slow': 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'float': 'float 10s ease-in-out infinite',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0) rotate(0deg)' },
+                            '50%': { transform: 'translateY(-20px) rotate(1deg)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        /* Layered Background System */
+        .bg-mesh {
+            background: radial-gradient(ellipse at top, #0a0a0f 0%, #050506 50%, #020203 100%);
+            position: fixed; inset: 0; z-index: -10;
+        }
+        .bg-grid {
+            background-image: linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 64px 64px;
+            position: fixed; inset: 0; z-index: -9;
+        }
+        .noise {
+            position: fixed; inset: 0; z-index: -8; opacity: 0.015; pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+        
+        /* Animated Light Pools */
+        .blob {
+            position: fixed; width: 900px; height: 1400px;
+            background: radial-gradient(circle, rgba(94,106,210,0.15) 0%, transparent 70%);
+            filter: blur(120px); z-index: -7; pointer-events: none;
         }
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #eee;
-            min-height: 100vh;
-            padding: 20px;
+        /* Precision Micro-interactions */
+        .card-spotlight {
+            position: relative;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 2px 20px rgba(0,0,0,0.4);
         }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
+        .card-spotlight:hover {
+            transform: translateY(-4px);
+            border-color: rgba(255,255,255,0.12);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.1), 0 8px 40px rgba(0,0,0,0.5), 0 0 80px rgba(94,106,210,0.05);
         }
-
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            border-left: 4px solid #00d4ff;
+        
+        .spotlight-glow {
+            position: absolute; inset: 0; pointer-events: none; opacity: 0;
+            transition: opacity 0.5s ease;
+            background: radial-gradient(300px circle at var(--x) var(--y), rgba(94,106,210,0.15), transparent 80%);
         }
+        .card-spotlight:hover .spotlight-glow { opacity: 1; }
 
-        h1 {
-            font-size: 2em;
-            color: #00d4ff;
-        }
-
-        .regime-badge {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 0.9em;
-        }
-
-        .regime-trending { background: #00d4ff; color: #000; }
-        .regime-risk-off { background: #ff6b6b; color: #fff; }
-        .regime-volatile { background: #ffd93d; color: #000; }
-        .regime-sideways { background: #a8b5ff; color: #000; }
-        .regime-unknown { background: #666; color: #fff; }
-
-        .controls {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-
-        input, select, button {
-            padding: 10px 15px;
-            border: 1px solid #444;
-            border-radius: 5px;
-            background: rgba(255, 255, 255, 0.05);
-            color: #eee;
-            font-size: 0.95em;
-        }
-
-        button {
-            background: #00d4ff;
-            color: #000;
-            border: none;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        button:hover {
-            background: #00a8cc;
-            transform: translateY(-2px);
-        }
-
-        button:active {
-            transform: translateY(0);
-        }
-
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-        }
-
-        .stat-box {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 20px;
-            border-radius: 8px;
-            border: 1px solid #444;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 1.8em;
-            font-weight: bold;
-            color: #00d4ff;
-        }
-
-        .stat-label {
-            font-size: 0.85em;
-            color: #aaa;
-            margin-top: 8px;
-        }
-
-        .alerts-section {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 20px;
-            border: 1px solid #444;
-        }
-
-        .alerts-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-
-        .alert-item {
-            background: rgba(0, 212, 255, 0.05);
-            border-left: 4px solid #00d4ff;
-            padding: 15px;
-            margin-bottom: 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
-
-        .alert-item:hover {
-            background: rgba(0, 212, 255, 0.1);
-            transform: translateX(5px);
-        }
-
-        .alert-item.avoid {
-            border-left-color: #ff6b6b;
-            background: rgba(255, 107, 107, 0.05);
-        }
-
-        .alert-item.avoid:hover {
-            background: rgba(255, 107, 107, 0.1);
-        }
-
-        .alert-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-
-        .ticker {
-            font-weight: bold;
-            font-size: 1.1em;
-            color: #00d4ff;
-        }
-
-        .signal-type {
-            font-size: 0.8em;
-            background: rgba(255, 255, 255, 0.1);
-            padding: 3px 8px;
-            border-radius: 3px;
-            color: #ccc;
-        }
-
-        .edge-score {
-            padding: 4px 12px;
-            border-radius: 15px;
-            font-weight: bold;
-            font-size: 0.9em;
-        }
-
-        .edge-score.high { background: #00d4ff; color: #000; }
-        .edge-score.medium { background: #ffd93d; color: #000; }
-        .edge-score.low { background: #666; color: #fff; }
-
-        .alert-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 12px;
-            font-size: 0.9em;
-            color: #bbb;
-        }
-
-        .detail {
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .detail-label {
-            color: #888;
-        }
-
-        .detail-value {
-            color: #eee;
-            font-weight: 500;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #888;
-        }
-
-        .empty {
-            text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-
-        .watchlist-modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .watchlist-modal.active {
-            display: flex;
-        }
-
-        .modal-content {
-            background: #1a1a2e;
-            padding: 30px;
-            border-radius: 8px;
-            max-width: 500px;
-            width: 90%;
-            border: 1px solid #444;
-        }
-
-        .modal-header {
-            margin-bottom: 20px;
-        }
-
-        .modal-header h2 {
-            color: #00d4ff;
-            margin-bottom: 10px;
-        }
-
-        .watchlist-items {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-bottom: 20px;
-        }
-
-        .watchlist-item {
-            background: rgba(0, 212, 255, 0.1);
-            border: 1px solid #00d4ff;
-            padding: 8px 12px;
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .watchlist-item button {
-            background: none;
-            border: none;
-            color: #ff6b6b;
-            font-weight: bold;
-            cursor: pointer;
-            padding: 0;
-        }
-
-        .add-ticker {
-            display: flex;
-            gap: 10px;
-        }
-
-        .add-ticker input {
-            flex: 1;
-        }
-
-        .close-modal {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            background: none;
-            border: none;
-            color: #aaa;
-            font-size: 1.5em;
-            cursor: pointer;
-        }
-
-        .status-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-
-        .status-indicator.online { background: #00d4ff; }
-        .status-indicator.offline { background: #ff6b6b; }
-
-        .last-update {
-            font-size: 0.85em;
-            color: #666;
-            margin-top: 10px;
-        }
-
-        @media (max-width: 768px) {
-            header {
-                flex-direction: column;
-                gap: 15px;
-            }
-
-            .controls {
-                flex-direction: column;
-            }
-
-            input, select, button {
-                width: 100%;
-            }
-
-            h1 {
-                font-size: 1.5em;
-            }
+        .headline-gradient {
+            background: linear-gradient(to bottom, #fff 0%, rgba(255,255,255,0.7) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
     </style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>🚀 Vigil Trading Assistant</h1>
-            <div>
-                <span class="status-indicator online"></span>
-                Market Regime: <span id="regime" class="regime-badge">Loading...</span>
-            </div>
-        </header>
+<body class="overflow-x-hidden min-h-screen">
+    <div class="bg-mesh"></div>
+    <div class="bg-grid"></div>
+    <div class="noise"></div>
+    <div class="blob top-[-20%] left-[10%] animate-float"></div>
+    <div class="blob bottom-[-20%] right-[5%] animate-pulse-slow"></div>
 
-        <div class="controls">
-            <input type="text" id="searchTicker" placeholder="Filter by ticker..." />
-            <select id="filterSignal">
-                <option value="">All Signals</option>
-                <option value="VOLUME_SPIKE_UP">Volume Spike Up</option>
-                <option value="VOLUME_SPIKE_DOWN">Volume Spike Down</option>
-                <option value="ACCUMULATION_DETECTED">Accumulation</option>
-            </select>
-            <select id="filterAction">
-                <option value="">All Actions</option>
-                <option value="ENTER">ENTER (Buy)</option>
-                <option value="AVOID">AVOID (Sell)</option>
-                <option value="WAIT">WAIT</option>
-            </select>
-            <button onclick="triggerDetection()">🔄 Trigger Detection</button>
-            <button onclick="openWatchlistModal()">📋 Watchlist</button>
-            <button onclick="refreshData()">♻️ Refresh</button>
-        </div>
-
-        <div class="stats">
-            <div class="stat-box">
-                <div class="stat-value" id="totalAlerts">-</div>
-                <div class="stat-label">Total Alerts</div>
+    <!-- Navigation -->
+    <nav class="sticky top-0 z-50 border-b border-white/[0.06] bg-[#050506]/80 backdrop-blur-xl">
+        <div class="container mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-8">
+                <span class="text-xl font-semibold tracking-tighter headline-gradient">VIGIL</span>
+                <div class="hidden md:flex gap-6 text-sm text-[#8A8F98]">
+                    <a href="/" class="hover:text-white transition-colors">Dashboard</a>
+                    <a href="/watchlist" class="hover:text-white transition-colors">Watchlist</a>
+                    <a href="/legacy" class="hover:text-white transition-colors">Legacy View</a>
+                </div>
             </div>
-            <div class="stat-box">
-                <div class="stat-value" id="enterSignals">-</div>
-                <div class="stat-label">ENTER Signals</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-value" id="eliteSetups">-</div>
-                <div class="stat-label">Elite (≥8.0)</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-value" id="watchlistCount">-</div>
-                <div class="stat-label">On Watchlist</div>
+            <div class="flex items-center gap-4">
+                <span id="market-regime" class="text-[10px] font-mono tracking-widest uppercase px-2 py-1 rounded-full border border-accent/30 bg-accent/10 text-accent">
+                    SCANNING...
+                </span>
+                <button onclick="triggerDetection()" class="text-xs bg-accent hover:bg-accent-bright px-4 py-2 rounded-lg font-medium transition-all active:scale-95 shadow-[0_0_0_1px_rgba(94,106,210,0.5),0_4px_12px_rgba(94,106,210,0.3)]">
+                    Run Pulse
+                </button>
             </div>
         </div>
+    </nav>
 
-        <div class="alerts-section">
-            <div class="alerts-header">
-                <h2>Recent Signals</h2>
-                <div class="last-update">Auto-refreshing every 30 seconds</div>
+    <main class="container mx-auto px-6 py-12">
+        <!-- Hero Metrics (Asymmetric Bento Grid) -->
+        <section class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-16">
+            <div class="md:col-span-4 card-spotlight p-8 rounded-2xl flex flex-col justify-between min-h-[240px]">
+                <div>
+                    <h1 class="text-4xl md:text-5xl font-semibold tracking-tight headline-gradient mb-2">Alpha Engine</h1>
+                    <p class="text-[#8A8F98] max-w-md">Institutional performance metrics derived from multi-timeframe divergence and alpha generation.</p>
+                </div>
+                <div class="flex gap-12 mt-8">
+                    <div>
+                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">PROFIT FACTOR</span>
+                        <span id="stat-profit-factor" class="text-3xl font-semibold">0.00</span>
+                    </div>
+                    <div>
+                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">SHARPE RATIO</span>
+                        <span id="stat-sharpe" class="text-3xl font-semibold text-accent">0.00</span>
+                    </div>
+                    <div>
+                        <span class="text-xs font-mono tracking-widest text-[#8A8F98] block mb-1">WIN RATE</span>
+                        <span id="stat-win-rate" class="text-3xl font-semibold">0%</span>
+                    </div>
+                </div>
+                <div class="spotlight-glow"></div>
             </div>
-            <div id="alertsList" class="alerts-list">
-                <div class="loading">Loading alerts...</div>
+            <div class="md:col-span-2 card-spotlight p-8 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span class="text-xs font-mono tracking-widest text-[#8A8F98] mb-4 uppercase">System Health</span>
+                <div class="w-24 h-24 rounded-full border-4 border-accent/20 flex items-center justify-center relative">
+                    <div class="absolute inset-0 rounded-full border-t-4 border-accent animate-spin"></div>
+                    <span id="active-tickers" class="text-2xl font-semibold">0</span>
+                </div>
+                <p class="mt-4 text-sm text-[#8A8F98]">Active Tickers Monitored</p>
+                <div class="spotlight-glow"></div>
             </div>
-        </div>
-    </div>
+        </section>
 
-    <div id="watchlistModal" class="watchlist-modal">
-        <div class="modal-content">
-            <button class="close-modal" onclick="closeWatchlistModal()">×</button>
-            <div class="modal-header">
-                <h2>Your Watchlist</h2>
-                <p style="color: #888; font-size: 0.9em;">Tickers on your watchlist get priority during detection</p>
+        <!-- Alert Feed -->
+        <section>
+            <div class="flex items-center justify-between mb-8">
+                <h2 class="text-2xl font-semibold tracking-tight">Active Intelligence</h2>
+                <div class="flex gap-2">
+                    <input type="text" placeholder="Filter ticker..." class="bg-white/[0.05] border border-white/10 rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-accent transition-colors">
+                </div>
             </div>
-            <div class="watchlist-items" id="watchlistItems"></div>
-            <div class="add-ticker">
-                <input type="text" id="newTicker" placeholder="Enter ticker (e.g., MSTR)" />
-                <button onclick="addToWatchlist()">Add</button>
+
+            <div id="alerts-container" class="space-y-4">
+                <!-- Alerts injected here -->
+                <div class="animate-pulse space-y-4">
+                    <div class="h-32 card-spotlight rounded-2xl"></div>
+                    <div class="h-32 card-spotlight rounded-2xl"></div>
+                </div>
             </div>
-        </div>
-    </div>
+        </section>
+    </main>
 
     <script>
-        const API_BASE = window.location.origin;
-        let allAlerts = [];
-
-        async function loadAlerts() {
-            try {
-                const response = await fetch(`${API_BASE}/alerts?limit=50`);
-                const data = await response.json();
-                allAlerts = data;
-                filterAndDisplayAlerts();
-                updateStats();
-            } catch (error) {
-                console.error('Error loading alerts:', error);
-                document.getElementById('alertsList').innerHTML = `<div class="empty">Failed to load alerts</div>`;
-            }
-        }
-
-        async function loadRegime() {
-            try {
-                const response = await fetch(`${API_BASE}/regime`);
-                const data = await response.json();
-                const regime = data.regime || 'UNKNOWN';
-                const badge = document.getElementById('regime');
-                badge.textContent = regime;
-                badge.className = `regime-badge regime-${regime.toLowerCase()}`;
-            } catch (error) {
-                console.error('Error loading regime:', error);
-            }
-        }
-
-        async function loadWatchlist() {
-            try {
-                const response = await fetch(`${API_BASE}/watchlist`);
-                const data = await response.json();
-                displayWatchlist(data);
-                document.getElementById('watchlistCount').textContent = data.length;
-            } catch (error) {
-                console.error('Error loading watchlist:', error);
-            }
-        }
-
-        function filterAndDisplayAlerts() {
-            const ticker = document.getElementById('searchTicker').value.toUpperCase();
-            const signal = document.getElementById('filterSignal').value;
-            const action = document.getElementById('filterAction').value;
-
-            let filtered = allAlerts.filter(alert => {
-                if (ticker && !alert.ticker.includes(ticker)) return false;
-                if (signal && alert.signal_type !== signal) return false;
-                if (action && alert.action !== action) return false;
-                return true;
+        // Mouse tracking for spotlight effect
+        document.addEventListener('mousemove', e => {
+            document.querySelectorAll('.card-spotlight').forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--x', `${x}px`);
+                card.style.setProperty('--y', `${y}px`);
             });
+        });
 
-            displayAlerts(filtered);
+        async function fetchData() {
+            try {
+                const [alertsRes, statsRes, regimeRes] = await Promise.all([
+                    fetch('/alerts?limit=20'),
+                    fetch('/stats'),
+                    fetch('/regime')
+                ]);
+
+                const alerts = await alertsRes.json();
+                const stats = await statsRes.json();
+                const regimeData = await regimeRes.json();
+
+                updateStats(stats);
+                updateRegime(regimeData.regime);
+                renderAlerts(alerts);
+            } catch (e) {
+                console.error("Fetch error:", e);
+            }
         }
 
-        function displayAlerts(alerts) {
-            const container = document.getElementById('alertsList');
-            
+        function updateStats(stats) {
+            document.getElementById('stat-profit-factor').innerText = stats.profit_factor || '0.00';
+            document.getElementById('stat-sharpe').innerText = stats.sharpe || '0.00';
+            document.getElementById('stat-win-rate').innerText = `${stats.win_rate || 0}%`;
+            document.getElementById('active-tickers').innerText = stats.total_trades || '0';
+        }
+
+        function updateRegime(regime) {
+            const el = document.getElementById('market-regime');
+            el.innerText = regime;
+            const colors = {
+                'TRENDING': 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
+                'RISK_OFF': 'border-red-500/30 bg-red-500/10 text-red-400',
+                'VOLATILE': 'border-amber-500/30 bg-amber-500/10 text-amber-400',
+                'SIDEWAYS': 'border-accent/30 bg-accent/10 text-accent'
+            };
+            el.className = `text-[10px] font-mono tracking-widest uppercase px-2 py-1 rounded-full border ${colors[regime] || colors['SIDEWAYS']}`;
+        }
+
+        function renderAlerts(alerts) {
+            const container = document.getElementById('alerts-container');
             if (alerts.length === 0) {
-                container.innerHTML = '<div class="empty">No alerts match your filters</div>';
+                container.innerHTML = `<div class="p-12 text-center text-[#8A8F98]">No signals detected in the current window.</div>`;
                 return;
             }
 
             container.innerHTML = alerts.map(alert => {
-                const edgeScore = alert.edge_score || 0;
-                let edgeClass = 'low';
-                if (edgeScore >= 8) edgeClass = 'high';
-                else if (edgeScore >= 5) edgeClass = 'medium';
-
-                const isAvoid = alert.action === 'AVOID';
-                const decay = alert.decay || {};
-
+                const actionColor = alert.action === 'ENTER' ? 'text-emerald-400' : (alert.action === 'AVOID' ? 'text-red-400' : 'text-accent');
+                const edgeClass = alert.edge_score >= 8 ? 'border-accent/50 bg-accent/5' : '';
+                
                 return `
-                    <div class="alert-item ${isAvoid ? 'avoid' : ''}">
-                        <div class="alert-header">
-                            <div>
-                                <div class="ticker">${alert.ticker}</div>
-                                <div style="font-size: 0.8em; color: #666;">${alert.date}</div>
+                    <div class="card-spotlight rounded-2xl p-6 group ${edgeClass}">
+                        <div class="flex flex-col md:flex-row gap-6 justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <span class="text-2xl font-bold tracking-tight">${alert.ticker}</span>
+                                    <span class="text-[10px] font-mono px-2 py-0.5 rounded border border-white/10 bg-white/5 uppercase">${alert.signal_combination}</span>
+                                    ${alert.edge_score >= 8 ? '<span class="text-[10px] font-mono px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-400">ELITE SETUP</span>' : ''}
+                                </div>
+                                <p class="text-sm text-[#8A8F98] leading-relaxed max-w-2xl">${alert.summary}</p>
+                                
+                                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
+                                    <div>
+                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Execution</span>
+                                        <span class="text-sm font-semibold ${actionColor}">${alert.action}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Edge Score</span>
+                                        <span class="text-sm font-semibold">${alert.edge_score.toFixed(1)}/10</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">MTF Context</span>
+                                        <span class="text-sm font-semibold text-[#EDEDEF]">${alert.mtf_alignment.replace('_', ' ')}</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-[10px] font-mono text-[#8A8F98] block uppercase">Age</span>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <div class="w-full bg-white/5 h-1 rounded-full overflow-hidden">
+                                                <div class="bg-accent h-full" style="width: ${alert.decay.pct}%"></div>
+                                            </div>
+                                            <span class="text-[10px] font-mono">${alert.decay.status}</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div style="text-align: right;">
-                                <div class="signal-type">${alert.signal_type || 'UNKNOWN'}</div>
-                                ${edgeScore ? `<div class="edge-score ${edgeClass}">${edgeScore.toFixed(1)}</div>` : ''}
+
+                            <div class="md:w-48 flex flex-col justify-between border-t md:border-t-0 md:border-l border-white/[0.06] pt-4 md:pt-0 md:pl-6">
+                                <div class="space-y-3">
+                                    <div class="flex justify-between text-xs">
+                                        <span class="text-[#8A8F98]">Vol Ratio</span>
+                                        <span class="font-mono text-emerald-400">${alert.volume_ratio}x</span>
+                                    </div>
+                                    <div class="flex justify-between text-xs">
+                                        <span class="text-[#8A8F98]">Outcome</span>
+                                        <span class="font-mono ${alert.outcome_pct > 0 ? 'text-emerald-400' : 'text-red-400'}">
+                                            ${alert.outcome_pct ? alert.outcome_pct.toFixed(1) + '%' : 'PENDING'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <button class="mt-4 w-full py-2 rounded-lg border border-white/10 text-[10px] font-mono uppercase hover:bg-white/5 transition-colors">
+                                    View Analysis
+                                </button>
                             </div>
                         </div>
-                        <div class="alert-details">
-                            <div class="detail">
-                                <span class="detail-label">Action:</span>
-                                <span class="detail-value">${alert.action || 'N/A'}</span>
-                            </div>
-                            <div class="detail">
-                                <span class="detail-label">Change:</span>
-                                <span class="detail-value">${alert.change_pct ? alert.change_pct.toFixed(2) + '%' : 'N/A'}</span>
-                            </div>
-                            <div class="detail">
-                                <span class="detail-label">Volume:</span>
-                                <span class="detail-value">${alert.volume_ratio ? alert.volume_ratio.toFixed(1) + 'x' : 'N/A'}</span>
-                            </div>
-                            <div class="detail">
-                                <span class="detail-label">State:</span>
-                                <span class="detail-value">${alert.state || 'N/A'}</span>
-                            </div>
-                            ${alert.mtf_alignment ? `
-                            <div class="detail">
-                                <span class="detail-label">MTF:</span>
-                                <span class="detail-value">${alert.mtf_alignment}</span>
-                            </div>
-                            ` : ''}
-                            ${decay.status ? `
-                            <div class="detail">
-                                <span class="detail-label">Decay:</span>
-                                <span class="detail-value">${decay.status} (${decay.pct}%)</span>
-                            </div>
-                            ` : ''}
-                        </div>
-                        ${alert.summary ? `<div style="font-size: 0.85em; color: #aaa; margin-top: 10px; font-style: italic;">"${alert.summary}"</div>` : ''}
+                        <div class="spotlight-glow"></div>
                     </div>
                 `;
             }).join('');
         }
 
-        function updateStats() {
-            document.getElementById('totalAlerts').textContent = allAlerts.length;
-            document.getElementById('enterSignals').textContent = allAlerts.filter(a => a.action === 'ENTER').length;
-            document.getElementById('eliteSetups').textContent = allAlerts.filter(a => (a.edge_score || 0) >= 8.0).length;
-        }
-
-        function displayWatchlist(items) {
-            const container = document.getElementById('watchlistItems');
-            container.innerHTML = items.map(ticker => `
-                <div class="watchlist-item">
-                    ${ticker}
-                    <button onclick="removeFromWatchlist('${ticker}')">✕</button>
-                </div>
-            `).join('');
-        }
-
-        async function addToWatchlist() {
-            const ticker = document.getElementById('newTicker').value.toUpperCase();
-            if (!ticker) return;
-
-            try {
-                await fetch(`${API_BASE}/watchlist`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ticker })
+        function triggerDetection() {
+            fetch('/trigger')
+                .then(() => {
+                    alert("Pulse triggered. Analyzing global markets...");
+                    setTimeout(fetchData, 3000);
                 });
-                document.getElementById('newTicker').value = '';
-                loadWatchlist();
-            } catch (error) {
-                console.error('Error adding to watchlist:', error);
-                alert('Failed to add ticker');
-            }
         }
 
-        async function removeFromWatchlist(ticker) {
-            try {
-                await fetch(`${API_BASE}/watchlist?ticker=${ticker}`, { method: 'DELETE' });
-                loadWatchlist();
-            } catch (error) {
-                console.error('Error removing from watchlist:', error);
-                alert('Failed to remove ticker');
-            }
-        }
-
-        async function triggerDetection() {
-            try {
-                await fetch(`${API_BASE}/trigger`);
-                alert('Detection triggered! Alerts will appear shortly.');
-                setTimeout(loadAlerts, 2000);
-            } catch (error) {
-                console.error('Error triggering detection:', error);
-                alert('Failed to trigger detection');
-            }
-        }
-
-        function refreshData() {
-            loadAlerts();
-            loadRegime();
-            loadWatchlist();
-        }
-
-        function openWatchlistModal() {
-            document.getElementById('watchlistModal').classList.add('active');
-        }
-
-        function closeWatchlistModal() {
-            document.getElementById('watchlistModal').classList.remove('active');
-        }
-
-        // Initial load and auto-refresh
-        loadAlerts();
-        loadRegime();
-        loadWatchlist();
-
-        setInterval(refreshData, 30000); // Refresh every 30 seconds
-
-        // Event listeners
-        document.getElementById('searchTicker').addEventListener('input', filterAndDisplayAlerts);
-        document.getElementById('filterSignal').addEventListener('change', filterAndDisplayAlerts);
-        document.getElementById('filterAction').addEventListener('change', filterAndDisplayAlerts);
-        document.getElementById('newTicker').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') addToWatchlist();
-        });
-
-        // Close modal on background click
-        document.getElementById('watchlistModal').addEventListener('click', (e) => {
-            if (e.target.id === 'watchlistModal') closeWatchlistModal();
-        });
+        // Initial load and poll
+        fetchData();
+        setInterval(fetchData, 60000);
     </script>
 </body>
 </html>

@@ -21,6 +21,38 @@ logger = logging.getLogger(__name__)
 # --- CONFIGURATION ---
 DEFAULT_TICKERS = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
 LOOKBACK_PERIOD = "60d"
+VIRTUAL_ACCOUNT_SIZE = 100000 # For share sizing calculations
+
+SECTOR_MAP = {
+    "AAPL": "XLK", "MSFT": "XLK", "NVDA": "SMH", "AMD": "SMH",
+    "TSLA": "XLY", "AMZN": "XLY", "META": "XLC", "GOOGL": "XLC",
+    "BTC-USD": "BITO", "ETH-USD": "BITO",
+    "JPM": "XLF", "GS": "XLF", "XOM": "XLE", "CVX": "XLE"
+}
+
+def get_confluence_indicators(history):
+    """Calculates Trend Strength (ADX) and Momentum (MACD)."""
+    close = history["Close"]
+    # MACD
+    exp1 = close.ewm(span=12, adjust=False).mean()
+    exp2 = close.ewm(span=26, adjust=False).mean()
+    macd = exp1 - exp2
+    signal = macd.ewm(span=9, adjust=False).mean()
+    hist = macd - signal
+    
+    # Simple ADX (Trend Strength) approximation
+    plus_dm = history["High"].diff().clip(lower=0)
+    minus_dm = history["Low"].diff().clip(upper=0).abs()
+    tr = np.maximum(history["High"] - history["Low"], 
+                    np.maximum(abs(history["High"] - close.shift(1)), 
+                               abs(history["Low"] - close.shift(1))))
+    atr_14 = tr.rolling(14).mean()
+    plus_di = 100 * (plus_dm.rolling(14).mean() / atr_14)
+    minus_di = 100 * (minus_dm.rolling(14).mean() / atr_14)
+    dx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di))
+    adx = dx.rolling(14).mean().iloc[-1]
+    
+    return float(adx), float(hist.iloc[-1]), float(hist.iloc[-2])
 
 def get_atr(history, period=14):
     """Calculates the Average True Range."""
@@ -50,6 +82,18 @@ def compute_kelly_sizing(edge_score):
     suggested_risk = max(0, kelly_f * 0.25) * 100
     return round(suggested_risk, 2)
 
+def compute_share_size(current_price, stop_loss, risk_pct):
+    """Calculates exactly how many shares to buy based on risk percentage."""
+    if risk_pct <= 0 or current_price <= stop_loss:
+        return 0
+    
+    # Risk in dollars (e.g., 1% of $100k = $1000)
+    risk_dollars = VIRTUAL_ACCOUNT_SIZE * (risk_pct / 100)
+    # Risk per share (entry - stop)
+    per_share_risk = current_price - stop_loss
+    
+    return int(risk_dollars / per_share_risk) if per_share_risk > 0 else 0
+
 # ─── STATE ───────────────────────────────────────────────────────────────────
 
 def compute_state(history):
@@ -78,16 +122,16 @@ def compute_state(history):
         return "RANGING"
 
 def compute_days_in_state(history, current_state):
-    """Count consecutive days (backwards) the current state has held."""
-    days = 1
-    n    = len(history)
-    for offset in range(1, min(20, n - 20)):
-        window = history.iloc[:n - offset]
-        if compute_state(window) == current_state:
+    """Efficiently count consecutive days the state has held."""
+    if len(history) < 2: return 1
+    days = 0
+    # Iterate backwards through history, only calculating state until it changes
+    for i in range(len(history) - 1, max(-1, len(history) - 21), -1):
+        if compute_state(history.iloc[:i+1]) == current_state:
             days += 1
         else:
             break
-    return days
+    return max(1, days)
 
 # ─── REGIME ──────────────────────────────────────────────────────────────────
 
@@ -410,6 +454,7 @@ def notify_webhook(alert_data):
         fields = [
             {"name": "Edge Score", "value": f"{alert_data['edge']:.2f}", "inline": True},
             {"name": "Position Size", "value": f"{alert_data.get('position_size', 0):.2f}%", "inline": True},
+            {"name": "Execution", "value": f"Buy {alert_data.get('shares', 0)} shares", "inline": True},
             {"name": "Win Probability", "value": f"{(0.40 + alert_data['edge']/10*0.30)*100:.0f}%", "inline": True},
             {"name": "Stop Loss", "value": f"${alert_data['sl']:.2f}" if alert_data.get('sl') else "N/A", "inline": True},
             {"name": "Take Profit", "value": f"${alert_data['tp']:.2f}" if alert_data.get('tp') else "N/A", "inline": True},
@@ -466,6 +511,16 @@ def run_detection():
         logger.error(f"Regime error: {e}")
         regime = "UNKNOWN"
 
+    # Pre-fetch Sector Regimes for Gatekeeper Logic
+    sector_regimes = {}
+    unique_sectors = list(set(SECTOR_MAP.values()))
+    for s in unique_sectors:
+        try:
+            s_hist = yf.Ticker(s).history(period="60d")
+            sector_regimes[s] = compute_regime(s_hist)
+        except:
+            sector_regimes[s] = "UNKNOWN"
+
     watchlist = get_watchlist()
     tickers = list(set(watchlist + DEFAULT_TICKERS))
     logger.info(f"Scanning {len(tickers)} tickers (including {len(watchlist)} from watchlist)")
@@ -492,6 +547,14 @@ def run_detection():
             prev_state = compute_state(history.iloc[:-1]) if len(history) > 20 else "UNKNOWN"
             days_in    = compute_days_in_state(history, state)
             mtf_weekly, mtf_daily, mtf_recent, mtf_alignment = compute_mtf(history)
+            
+            # Confluence Data
+            adx, macd_h, prev_macd_h = get_confluence_indicators(history)
+            momentum_up = macd_h > prev_macd_h
+            
+            # Sector Gate
+            sector_etf = SECTOR_MAP.get(ticker_symbol)
+            sector_ok = sector_regimes.get(sector_etf) in ("TRENDING", "VOLATILE") if sector_etf else True
 
             has_recent_accum = get_recent_alert_for_ticker(
                 ticker_symbol, "ACCUMULATION_DETECTED", days=7
@@ -508,10 +571,18 @@ def run_detection():
             # Revolutionary Metrics: Alpha and Sizing
             alpha = compute_relative_strength(history, spy_history)
             
-            # REVOLUTIONARY: Run advanced signal analysis on this ticker
-            # This enriches every signal with institutional-grade insights
+            # --- Institutional Metric Initialization ---
+            # Ensures robustness for every ticker iteration
+            shares          = 0
+            kelly_size      = 0
+            momentum_score  = 0
+            volatility_desc = "NORMAL"
+            sector_gate     = "N/A"
+            warnings        = []
+            pass_advanced_analysis = False
+
             try:
-                # Compute base edge first
+                advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, 5.0) # Base
                 pass_advanced_analysis = True
             except Exception as e:
                 logger.warning(f"Advanced analysis failed for {ticker_symbol}: {e}")
@@ -538,15 +609,16 @@ def run_detection():
                     advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, edge)
                     edge = advanced["final_edge"]
                     action = "ENTER" if edge >= 7.0 else action
-                    position_size = advanced["position_size"]
+                    kelly_size = advanced["position_size"]
                     momentum_score = advanced["enhancements"].get("momentum_score", 0)
                     volatility_desc = advanced["enhancements"].get("volatility", "")
                     sector_gate = advanced["gates"].get("sector_correlation", {}).get("status", "UNKNOWN")
                     warnings = advanced["warnings"]
+                    shares = compute_share_size(close_price, sl_level, kelly_size)
                 else:
-                    position_size = compute_kelly_sizing(edge)
+                    kelly_size = compute_kelly_sizing(edge)
                     momentum_score = 0
-                    volatility_desc = ""
+                    volatility_desc = "NORMAL"
                     sector_gate = "ERROR"
                     warnings = []
 
@@ -577,7 +649,8 @@ def run_detection():
                         "mtf": mtf_alignment,
                         "sl": sl_level,
                         "tp": tp_level,
-                        "kelly": position_size,
+                        "kelly": kelly_size,
+                        "shares": shares,
                         "momentum_score": momentum_score,
                         "volatility_desc": volatility_desc,
                         "sector_gate": sector_gate,
@@ -592,6 +665,11 @@ def run_detection():
                                              accum_conv if has_recent_accum else None)
                 action  = compute_action(combo, edge, trap_conv, mtf_alignment)
 
+                # REVOLUTIONARY GATE: Only ENTER if sector is supportive
+                if action == "ENTER" and not sector_ok:
+                    logger.info(f"Sector Gate: Blocked {ticker_symbol} ENTER signal (Sector {sector_etf} is {sector_regimes.get(sector_etf)})")
+                    action = "WAIT"
+
                 if action == "ENTER" and recent_enter:
                     logger.info(f"Suppressed duplicate ENTER signal for {ticker_symbol} (Breakout)")
                 else:
@@ -600,15 +678,16 @@ def run_detection():
                         advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, edge)
                         edge = advanced["final_edge"]
                         action = "ENTER" if edge >= 7.0 else action
-                        position_size = advanced["position_size"]
+                        kelly_size = advanced["position_size"]
                         momentum_score = advanced["enhancements"].get("momentum_score", 0)
                         volatility_desc = advanced["enhancements"].get("volatility", "")
                         sector_gate = advanced["gates"].get("sector_correlation", {}).get("status", "UNKNOWN")
                         warnings = advanced["warnings"]
+                        shares = compute_share_size(close_price, sl_level, kelly_size)
                     else:
-                        position_size = compute_kelly_sizing(edge)
+                        kelly_size = compute_kelly_sizing(edge)
                         momentum_score = 0
-                        volatility_desc = ""
+                        volatility_desc = "NORMAL"
                         sector_gate = "ERROR"
                         warnings = []
 
@@ -620,6 +699,10 @@ def run_detection():
                         mtf_weekly=mtf_weekly, mtf_daily=mtf_daily,
                         mtf_recent=mtf_recent, mtf_alignment=mtf_alignment,
                         signal_combination=combo, edge_score=edge,
+                        adx_strength=adx,
+                        momentum_score=momentum_score,
+                        volatility_desc=volatility_desc,
+                        sector_gate=sector_gate,
                         days_in_state=days_in, prev_state=prev_state,
                         regime=regime, action=action, summary=summary
                     )
@@ -639,7 +722,8 @@ def run_detection():
                             "mtf": mtf_alignment,
                             "sl": sl_level,
                             "tp": tp_level,
-                            "kelly": position_size,
+                            "kelly": kelly_size,
+                            "shares": shares,
                             "momentum_score": momentum_score,
                             "volatility_desc": volatility_desc,
                             "sector_gate": sector_gate,
@@ -659,6 +743,9 @@ def run_detection():
                     mtf_recent=mtf_recent, mtf_alignment=mtf_alignment,
                     signal_combination=combo, edge_score=edge,
                     days_in_state=days_in, prev_state=prev_state,
+                    adx_strength=adx,
+                    momentum_score=momentum_score,
+                    volatility_desc=volatility_desc,
                     regime=regime, action=action, summary=summary
                 )
                 logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
@@ -694,6 +781,12 @@ def run_backfill():
             prev_state = compute_state(window.iloc[:-1]) if len(window) > 20 else "UNKNOWN"
             days_in    = compute_days_in_state(window, state)
             mtf_weekly, mtf_daily, mtf_recent, mtf_alignment = compute_mtf(window)
+            
+            # Define missing metrics for backfill persistence
+            adx, macd_h, _ = get_confluence_indicators(window)
+            momentum_score = compute_momentum_confirmation(window)
+            volatility_desc = compute_volatility_bonus(window)
+            sector_gate = "BACKFILL"
 
             from datetime import timedelta
             cooldown_ok      = last_accum_date is None or (date - last_accum_date).days >= 3
@@ -714,6 +807,9 @@ def run_backfill():
                     mtf_weekly=mtf_weekly, mtf_daily=mtf_daily,
                     mtf_recent=mtf_recent, mtf_alignment=mtf_alignment,
                     signal_combination=combo, edge_score=edge,
+                    adx_strength=adx,
+                    momentum_score=momentum_score,
+                    volatility_desc=volatility_desc,
                     days_in_state=days_in, prev_state=prev_state,
                     regime=regime, action=action, summary=summary
                 )
