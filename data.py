@@ -4,10 +4,22 @@ import logging
 import json
 import os
 import urllib.request
-from database import save_alert, init_db, get_recent_alert_for_ticker, get_watchlist, get_latest_regime
+from database import (save_alert, init_db, get_recent_alert_for_ticker, 
+                      get_watchlist, get_latest_regime, get_recent_alert_by_action)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+# --- CONFIGURATION ---
+DEFAULT_TICKERS = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
+LOOKBACK_PERIOD = "60d"
+
+def get_atr(history, period=14):
+    """Calculates the Average True Range."""
+    high, low, pc = history["High"], history["Low"], history["Close"].shift(1)
+    tr = np.maximum(high - low, np.maximum(abs(high - pc), abs(low - pc)))
+    atr = tr.rolling(window=period).mean().iloc[-1]
+    return float(atr)
 
 # ─── STATE ───────────────────────────────────────────────────────────────────
 
@@ -313,14 +325,18 @@ def compute_action(combination, edge_score, trap_conviction, mtf_alignment):
 # ─── SUMMARY ────────────────────────────────────────────────────────────────
 
 def compute_summary(combination, days_in_state, volume_ratio,
-                    change_pct, state, trap_conviction, accum_price_range_pct):
+                    change_pct, state, trap_conviction, accum_price_range_pct, sl=None, tp=None):
     vr  = volume_ratio or 0
     chg = change_pct  or 0
     dis = days_in_state or 0
     if combination == "ACCUM_BREAKOUT":
-        return f"{dis}-day accumulation resolved — breakout with {vr:.1f}× volume"
+        base = f"{dis}-day accumulation resolved — breakout with {vr:.1f}× volume"
+        if sl and tp: base += f" | SL: {sl:.2f} TP: {tp:.2f}"
+        return base
     elif combination == "CONFIRMED_BREAKOUT":
-        return f"Breakout with {vr:.1f}× volume — {chg:+.1f}% on the session"
+        base = f"Breakout with {vr:.1f}× volume — {chg:+.1f}% on the session"
+        if sl and tp: base += f" | SL: {sl:.2f} TP: {tp:.2f}"
+        return base
     elif combination == "WEAK_BREAKOUT":
         return f"Breakout attempt on low conviction — {vr:.1f}× volume, trap conditions present"
     elif combination == "TRENDING_CONTINUATION":
@@ -369,7 +385,9 @@ def notify_webhook(alert_data):
                 "fields": [
                     {"name": "Edge Score", "value": str(alert_data['edge']), "inline": True},
                     {"name": "Regime", "value": alert_data['regime'], "inline": True},
-                    {"name": "MTF Alignment", "value": alert_data['mtf'], "inline": True}
+                {"name": "MTF Alignment", "value": alert_data['mtf'], "inline": True},
+                {"name": "Stop Loss", "value": f"${alert_data['sl']:.2f}" if alert_data.get('sl') else "N/A", "inline": True},
+                {"name": "Take Profit", "value": f"${alert_data['tp']:.2f}" if alert_data.get('tp') else "N/A", "inline": True}
                 ],
                 "color": color
             }]
@@ -388,7 +406,7 @@ def run_detection():
 
     # Check for Regime Shift
     try:
-        spy_history = yf.Ticker("SPY").history(period="60d")
+        spy_history = yf.Ticker("SPY").history(period=LOOKBACK_PERIOD)
         regime = compute_regime(spy_history)
         last_regime = get_latest_regime()
         if last_regime and last_regime != regime:
@@ -399,14 +417,17 @@ def run_detection():
         regime = "UNKNOWN"
 
     watchlist = get_watchlist()
-    default_tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
-    tickers = list(set(watchlist + default_tickers))
+    tickers = list(set(watchlist + DEFAULT_TICKERS))
     logger.info(f"Scanning {len(tickers)} tickers (including {len(watchlist)} from watchlist)")
     logger.info(f"Market Regime: {regime}")
 
+    # Strategy: Batch download history to speed up detection
+    # Note: Using individual tickers for now to maintain OHLCV access consistency
+    # but instantiating the Ticker object once.
     for ticker_symbol in tickers:
         try:
-            history = yf.Ticker(ticker_symbol).history(period="60d")
+            ticker_obj = yf.Ticker(ticker_symbol)
+            history = ticker_obj.history(period=LOOKBACK_PERIOD)
             if len(history) < 20:
                 continue
 
@@ -425,6 +446,14 @@ def run_detection():
             has_recent_accum = get_recent_alert_for_ticker(
                 ticker_symbol, "ACCUMULATION_DETECTED", days=7
             ) is not None
+            
+            # Suppression check: avoid duplicate ENTER signals within 48 hours
+            recent_enter = get_recent_alert_by_action(ticker_symbol, "ENTER", days=2)
+
+            # Calculate ATR for SL/TP
+            atr = get_atr(history)
+            sl_level = close_price - (2.0 * atr)
+            tp_level = close_price + (4.0 * atr)
 
             # ── Accumulation (with 3-day cooldown) ──────────────────────
             is_accum, accum_conv, accum_rng, accum_days = detect_accumulation(history)
@@ -436,7 +465,12 @@ def run_detection():
                 combo   = compute_signal_combination("ACCUMULATION_DETECTED", state, None, False)
                 edge    = compute_edge_score(combo, mtf_alignment, None, ratio, days_in, accum_conv)
                 action  = compute_action(combo, edge, None, mtf_alignment)
-                summary = compute_summary(combo, accum_days, ratio, change_percent, state, None, accum_rng)
+
+                if action == "ENTER" and recent_enter:
+                    logger.info(f"Suppressed duplicate ENTER signal for {ticker_symbol} (Accumulation)")
+                    continue
+
+                summary = compute_summary(combo, accum_days, ratio, change_percent, state, None, accum_rng, sl_level, tp_level)
                 save_alert(
                     ticker_symbol, date, ratio, change_percent,
                     "ACCUMULATION_DETECTED", "ACCUMULATING",
@@ -460,7 +494,9 @@ def run_detection():
                         "edge": edge,
                         "summary": summary,
                         "regime": regime,
-                        "mtf": mtf_alignment
+                        "mtf": mtf_alignment,
+                        "sl": sl_level,
+                        "tp": tp_level
                     })
 
             # ── Volume spike up ──────────────────────────────────────────
@@ -470,17 +506,21 @@ def run_detection():
                 edge    = compute_edge_score(combo, mtf_alignment, trap_conv, ratio, days_in,
                                              accum_conv if has_recent_accum else None)
                 action  = compute_action(combo, edge, trap_conv, mtf_alignment)
-                summary = compute_summary(combo, days_in, ratio, change_percent, state, trap_conv, None)
-                save_alert(
-                    ticker_symbol, date, ratio, change_percent,
-                    "VOLUME_SPIKE_UP", state,
-                    trap_conviction=trap_conv, trap_type=trap_type, trap_reasons=trap_reasons,
-                    mtf_weekly=mtf_weekly, mtf_daily=mtf_daily,
-                    mtf_recent=mtf_recent, mtf_alignment=mtf_alignment,
-                    signal_combination=combo, edge_score=edge,
-                    days_in_state=days_in, prev_state=prev_state,
-                    regime=regime, action=action, summary=summary
-                )
+
+                if action == "ENTER" and recent_enter:
+                    logger.info(f"Suppressed duplicate ENTER signal for {ticker_symbol} (Breakout)")
+                else:
+                    summary = compute_summary(combo, days_in, ratio, change_percent, state, trap_conv, None, sl_level, tp_level)
+                    save_alert(
+                        ticker_symbol, date, ratio, change_percent,
+                        "VOLUME_SPIKE_UP", state,
+                        trap_conviction=trap_conv, trap_type=trap_type, trap_reasons=trap_reasons,
+                        mtf_weekly=mtf_weekly, mtf_daily=mtf_daily,
+                        mtf_recent=mtf_recent, mtf_alignment=mtf_alignment,
+                        signal_combination=combo, edge_score=edge,
+                        days_in_state=days_in, prev_state=prev_state,
+                        regime=regime, action=action, summary=summary
+                    )
                 trap_note = f" ⚠ TRAP {int(trap_conv*100)}%" if trap_conv else ""
                 logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
 
@@ -494,7 +534,9 @@ def run_detection():
                         "edge": edge,
                         "summary": summary,
                         "regime": regime,
-                        "mtf": mtf_alignment
+                        "mtf": mtf_alignment,
+                        "sl": sl_level,
+                        "tp": tp_level
                     })
 
             # ── Volume spike down ────────────────────────────────────────

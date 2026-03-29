@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from flask import Flask, jsonify, send_from_directory, request
 from database import (init_db, get_alerts, save_alert, 
@@ -107,13 +108,13 @@ def regime():
 
 @app.route("/trigger")
 def trigger():
-    run_detection()
-    return jsonify({"status": "detection complete"})
+    threading.Thread(target=run_detection).start()
+    return jsonify({"status": "detection started in background"})
 
 @app.route("/backfill")
 def backfill():
-    run_backfill()
-    return jsonify({"status": "backfill complete"})
+    threading.Thread(target=run_backfill).start()
+    return jsonify({"status": "backfill started in background"})
 
 @app.route("/evaluate")
 def evaluate():

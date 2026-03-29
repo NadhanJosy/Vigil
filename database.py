@@ -120,6 +120,21 @@ def get_recent_alert_for_ticker(ticker, signal_type, days=7):
     conn.close()
     return row
 
+def get_recent_alert_by_action(ticker, action, days=2):
+    """Checks if an alert with a specific action was generated recently."""
+    from datetime import datetime, timedelta
+    conn = get_conn()
+    cursor = conn.cursor()
+    cutoff = datetime.now() - timedelta(days=days)
+    cursor.execute("""
+        SELECT id FROM alerts
+        WHERE ticker = %s AND action = %s AND created_at >= %s
+        ORDER BY created_at DESC LIMIT 1
+    """, (ticker, action, cutoff))
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
 def get_latest_regime():
     """Returns the regime from the most recent alert in the database."""
     conn = get_conn()
@@ -227,6 +242,7 @@ def evaluate_outcomes():
             tk = yf.Ticker(ticker)
             history = tk.history(start=date_str, end=eval_date.strftime("%Y-%m-%d"))
             if len(history) < 2:
+                logger.warning(f"Insufficient history to evaluate {ticker} on {date_str}")
                 continue
             entry_price = float(history["Close"].iloc[0])
             exit_price  = float(history["Close"].iloc[-1])
@@ -243,7 +259,7 @@ def evaluate_outcomes():
                 WHERE id = %s
             """, (float(round(outcome_pct, 2)), int(days), result, id))
         except Exception as e:
-            print(f"Outcome eval error for {ticker}: {e}")
+            logger.error(f"Outcome eval error for {ticker}: {e}")
 
     conn.commit()
     conn.close()
