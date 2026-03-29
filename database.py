@@ -13,19 +13,32 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS alerts (
-        id SERIAL PRIMARY KEY,
-        ticker TEXT,
-        date TEXT,
-        volume_ratio REAL,
-        change_pct REAL,
-        signal_type TEXT,
-        state TEXT,
-        outcome_pct REAL,
-        outcome_days INTEGER,
-        outcome_result TEXT
-    )
-""")
+        CREATE TABLE IF NOT EXISTS alerts (
+            id SERIAL PRIMARY KEY,
+            ticker TEXT,
+            date TEXT,
+            volume_ratio REAL,
+            change_pct REAL,
+            signal_type TEXT,
+            state TEXT,
+            outcome_pct REAL,
+            outcome_days INTEGER,
+            outcome_result TEXT
+        )
+    """)
+    # Migration: add outcome columns if they don't exist yet
+    cursor.execute("""
+        ALTER TABLE alerts
+        ADD COLUMN IF NOT EXISTS outcome_pct REAL
+    """)
+    cursor.execute("""
+        ALTER TABLE alerts
+        ADD COLUMN IF NOT EXISTS outcome_days INTEGER
+    """)
+    cursor.execute("""
+        ALTER TABLE alerts
+        ADD COLUMN IF NOT EXISTS outcome_result TEXT
+    """)
     conn.commit()
     conn.close()
     print("Database ready")
