@@ -1,733 +1,111 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vigil — Market Intelligence</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        :root {
-            --bg-deep:       #020203;
-            --bg-base:       #050506;
-            --bg-elevated:   #0a0a0c;
-            --surface:       rgba(255,255,255,0.05);
-            --surface-hover: rgba(255,255,255,0.08);
-            --fg:            #EDEDEF;
-            --fg-muted:      #8A8F98;
-            --fg-subtle:     rgba(255,255,255,0.40);
-            --accent:        #5E6AD2;
-            --accent-bright: #6872D9;
-            --accent-glow:   rgba(94,106,210,0.3);
-            --border:        rgba(255,255,255,0.06);
-            --border-hover:  rgba(255,255,255,0.10);
-            --c-enter:  #22c55e;
-            --c-wait:   #d97706;
-            --c-avoid:  #dc2626;
-            --c-down:   #475569;
-            --c-accum:  #818cf8;
-        }
-
-        html { font-family: 'Inter', system-ui, sans-serif; font-size: 16px; }
-
-        body {
-            background: var(--bg-base);
-            color: var(--fg);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
-
-        /* ── BACKGROUND SYSTEM ─────────────────────────────────── */
-        .bg-mesh {
-            position: fixed; inset: 0; z-index: -10;
-            background: radial-gradient(ellipse at top, #0a0a0f 0%, #050506 50%, #020203 100%);
-        }
-        .bg-grid {
-            position: fixed; inset: 0; z-index: -9; pointer-events: none;
-            background-image:
-                linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
-            background-size: 64px 64px;
-        }
-        .bg-noise {
-            position: fixed; inset: 0; z-index: -8; opacity: 0.015; pointer-events: none;
-            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-        }
-        .blob {
-            position: fixed; border-radius: 50%; filter: blur(120px);
-            z-index: -7; pointer-events: none; animation: float var(--dur, 10s) ease-in-out infinite;
-        }
-        .blob-1 {
-            width: 900px; height: 1200px;
-            background: radial-gradient(circle, rgba(94,106,210,0.18) 0%, transparent 70%);
-            top: -30%; left: 5%; --dur: 10s;
-        }
-        .blob-2 {
-            width: 600px; height: 800px;
-            background: radial-gradient(circle, rgba(120,80,220,0.12) 0%, transparent 70%);
-            top: 20%; right: -10%; --dur: 14s; animation-delay: -4s;
-        }
-        .blob-3 {
-            width: 500px; height: 600px;
-            background: radial-gradient(circle, rgba(60,100,200,0.10) 0%, transparent 70%);
-            bottom: -20%; left: 30%; --dur: 12s; animation-delay: -7s;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0) rotate(0deg); }
-            50%       { transform: translateY(-24px) rotate(1deg); }
-        }
-
-        /* ── REGIME STRIP ──────────────────────────────────────── */
-        .regime-strip {
-            background: rgba(94,106,210,0.06);
-            border-bottom: 1px solid rgba(94,106,210,0.12);
-            padding: 8px 28px;
-            display: flex; align-items: center; gap: 10px;
-        }
-        .regime-dot {
-            width: 6px; height: 6px; border-radius: 50%;
-            background: var(--accent); animation: pulse 3s ease-in-out infinite;
-        }
-        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.3} }
-        .regime-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.14em; color: var(--accent); }
-        .regime-desc  { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--fg-subtle); }
-
-        /* ── NAV ───────────────────────────────────────────────── */
-        nav {
-            position: sticky; top: 0; z-index: 50;
-            background: rgba(5,5,6,0.80); backdrop-filter: blur(20px);
-            border-bottom: 1px solid var(--border);
-            padding: 0 28px; height: 60px;
-            display: flex; align-items: center; justify-content: space-between;
-        }
-        .nav-left { display: flex; align-items: baseline; gap: 16px; }
-        .nav-wordmark {
-            font-size: 18px; font-weight: 600; letter-spacing: -0.02em;
-            background: linear-gradient(to bottom, #fff 0%, rgba(255,255,255,0.7) 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
-        .nav-sub { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); letter-spacing: 0.08em; }
-        .nav-right { display: flex; align-items: center; gap: 20px; }
-        .nav-status { display: flex; align-items: center; gap: 6px; }
-        .status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--c-enter); animation: pulse 2.5s infinite; }
-        .status-text { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); }
-        .btn-primary {
-            background: var(--accent); color: #fff;
-            font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
-            padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
-            box-shadow: 0 0 0 1px rgba(94,106,210,0.5), 0 4px 12px rgba(94,106,210,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
-            transition: all 0.2s cubic-bezier(0.16,1,0.3,1);
-        }
-        .btn-primary:hover { background: var(--accent-bright); box-shadow: 0 0 0 1px rgba(94,106,210,0.7), 0 6px 20px rgba(94,106,210,0.4); transform: translateY(-1px); }
-        .btn-primary:active { transform: scale(0.98); }
-
-        /* ── MAIN CONTENT ──────────────────────────────────────── */
-        main { max-width: 1100px; margin: 0 auto; padding: 40px 28px 100px; }
-
-        /* ── BENTO GRID ────────────────────────────────────────── */
-        .bento {
-            display: grid;
-            grid-template-columns: repeat(6, 1fr);
-            grid-template-rows: auto;
-            gap: 12px; margin-bottom: 48px;
-        }
-        .bento-hero { grid-column: span 4; }
-        .bento-health { grid-column: span 2; }
-
-        .card {
-            position: relative; overflow: hidden;
-            background: linear-gradient(to bottom, rgba(255,255,255,0.07), rgba(255,255,255,0.02));
-            border: 1px solid var(--border); border-radius: 16px;
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 2px 20px rgba(0,0,0,0.4);
-            transition: all 0.3s cubic-bezier(0.16,1,0.3,1);
-        }
-        .card:hover {
-            border-color: var(--border-hover);
-            box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 40px rgba(0,0,0,0.5), 0 0 60px rgba(94,106,210,0.06);
-            transform: translateY(-3px);
-        }
-        .card-spotlight {
-            position: absolute; inset: 0; pointer-events: none; opacity: 0;
-            background: radial-gradient(300px circle at var(--mx,50%) var(--my,50%), rgba(94,106,210,0.12), transparent 80%);
-            transition: opacity 0.4s ease;
-        }
-        .card:hover .card-spotlight { opacity: 1; }
-
-        /* Hero card */
-        .hero-card { padding: 32px; min-height: 220px; display: flex; flex-direction: column; justify-content: space-between; }
-        .hero-title {
-            font-size: 42px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
-            background: linear-gradient(to bottom, #fff 0%, rgba(255,255,255,0.65) 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
-        }
-        .hero-sub { font-size: 13px; color: var(--fg-muted); max-width: 360px; line-height: 1.6; }
-        .stat-row { display: flex; gap: 40px; margin-top: 24px; }
-        .stat-block {}
-        .stat-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.14em; color: var(--fg-muted); text-transform: uppercase; margin-bottom: 4px; }
-        .stat-value { font-size: 28px; font-weight: 600; }
-        .stat-value.accent { color: var(--accent); }
-
-        /* Health card */
-        .health-card { padding: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; min-height: 220px; }
-        .health-ring {
-            width: 80px; height: 80px; border-radius: 50%;
-            border: 3px solid rgba(94,106,210,0.15);
-            display: flex; align-items: center; justify-content: center;
-            position: relative; margin: 16px 0;
-        }
-        .health-ring::before {
-            content: ''; position: absolute; inset: -3px; border-radius: 50%;
-            border: 3px solid transparent;
-            border-top-color: var(--accent);
-            animation: spin 2s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .health-num { font-size: 22px; font-weight: 600; }
-        .health-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-muted); letter-spacing: 0.1em; }
-
-        /* ── SECTION HEADER ────────────────────────────────────── */
-        .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-        .section-title { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
-        .section-meta { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--fg-subtle); }
-
-        /* ── ALERT CARDS ───────────────────────────────────────── */
-        .alerts { display: flex; flex-direction: column; gap: 8px; }
-        .divider-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.18em; color: rgba(255,255,255,0.12); margin: 16px 0 6px; }
-
-        .alert-card {
-            position: relative; overflow: hidden;
-            background: #030812;
-            border: 1px solid #0a1628;
-            border-radius: 10px; cursor: pointer;
-            transition: all 0.15s ease;
-        }
-        .alert-card.expanded { background: #050c1a; }
-        .alert-card:hover { border-color: #0f1e38; }
-
-        /* Left action bar */
-        .alert-bar {
-            position: absolute; left: 0; top: 12%; bottom: 12%; width: 2px;
-            border-radius: 2px;
-        }
-
-        /* Decay bar */
-        .decay-wrap { padding: 14px 22px 0; }
-        .decay-track { height: 2px; background: #0a1628; border-radius: 1px; overflow: hidden; position: relative; }
-        .decay-fill { height: 100%; border-radius: 1px; transition: width 0.6s ease; }
-        .decay-meta { display: flex; justify-content: flex-end; margin-top: 4px; }
-        .decay-text { font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em; }
-
-        /* Alert header */
-        .alert-header { padding: 12px 22px 14px; display: flex; justify-content: space-between; align-items: flex-start; }
-        .alert-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 6px; }
-        .alert-ticker { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 500; color: #e2e8f0; letter-spacing: 0.05em; }
-
-        .action-badge {
-            display: inline-flex; align-items: center; gap: 5px;
-            padding: 4px 11px; border-radius: 5px;
-            font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.12em;
-        }
-        .combo-badge {
-            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em;
-            padding: 2px 8px; border-radius: 3px;
-            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
-            color: var(--fg-muted);
-        }
-        .trap-pill {
-            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.08em;
-            padding: 2px 8px; border-radius: 3px;
-            background: rgba(220,38,38,0.08); border: 1px solid rgba(220,38,38,0.2); color: #dc2626;
-        }
-
-        /* MTF dots */
-        .mtf-dots { display: flex; align-items: center; gap: 5px; }
-        .mtf-dot-group { display: flex; align-items: center; gap: 3px; }
-        .mtf-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .mtf-lbl { font-family: 'JetBrains Mono', monospace; font-size: 7px; color: #334155; }
-
-        .alert-right { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
-        .edge-num { font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 500; }
-        .edge-denom { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; }
-        .alert-time { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; }
-
-        /* State row */
-        .state-row { padding: 0 22px 10px; display: flex; align-items: center; gap: 7px; }
-        .state-pill {
-            font-family: 'JetBrains Mono', monospace; font-size: 8px; letter-spacing: 0.06em;
-            padding: 2px 9px; border-radius: 2px;
-        }
-        .state-arrow { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #1e3a5f; }
-
-        /* Summary */
-        .alert-summary { padding: 0 22px 18px; font-size: 15px; font-weight: 300; color: #c0cfe4; line-height: 1.5; }
-
-        /* Expanded body */
-        .alert-expanded { border-top: 1px solid #0a1628; padding: 18px 22px 20px; }
-
-        /* Trap warning */
-        .trap-warning {
-            background: rgba(220,38,38,0.06); border: 1px solid rgba(220,38,38,0.15);
-            border-radius: 5px; padding: 10px 12px; margin-bottom: 14px;
-        }
-        .trap-warning-title { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #dc2626; letter-spacing: 0.1em; margin-bottom: 7px; }
-        .trap-reason { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #7f1d1d; line-height: 1.6; display: flex; gap: 8px; margin-bottom: 3px; }
-
-        /* MTF expanded */
-        .mtf-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-
-        /* Detail grid */
-        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
-        .detail-block { background: #030a14; border-radius: 5px; padding: 10px 12px; }
-        .detail-label { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #1e3a5f; letter-spacing: 0.1em; margin-bottom: 5px; }
-        .detail-value { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #475569; }
-        .detail-value.good { color: var(--c-enter); }
-        .detail-value.bad  { color: var(--c-avoid); }
-        .detail-value.mid  { color: var(--c-wait); }
-
-        /* Edge breakdown */
-        .edge-breakdown { background: #040710; border: 1px solid #0f1a2e; border-radius: 6px; padding: 14px; margin-top: 12px; }
-        .edge-breakdown-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
-        .edge-breakdown-title { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #1e3a5f; letter-spacing: 0.1em; }
-        .edge-big { font-size: 22px; font-weight: 500; }
-        .edge-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-        .edge-row-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #334155; width: 120px; flex-shrink: 0; }
-        .edge-bar-track { flex: 1; height: 3px; background: #0c1a2e; border-radius: 1px; overflow: hidden; }
-        .edge-bar-fill { height: 100%; border-radius: 1px; }
-        .edge-row-val { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #334155; width: 36px; text-align: right; }
-
-        /* Footer */
-        .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid #050f1e; text-align: center; }
-        .footer-text { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: #0a1628; line-height: 2.2; }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .bento { grid-template-columns: 1fr; }
-            .bento-hero, .bento-health { grid-column: span 1; }
-            .stat-row { flex-wrap: wrap; gap: 24px; }
-            .detail-grid { grid-template-columns: 1fr; }
-            main { padding: 24px 16px 80px; }
-            nav { padding: 0 16px; }
-        }
-
-        /* Skeleton */
-        .skeleton { background: linear-gradient(90deg, #0a1628 25%, #0f1e38 50%, #0a1628 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: 10px; }
-        @keyframes shimmer { 0%{background-position:200%}100%{background-position:-200%} }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vigil — Market Intelligence</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/vigil.css">
 </head>
 <body>
 
-<div class="bg-mesh"></div>
-<div class="bg-grid"></div>
-<div class="bg-noise"></div>
-<div class="blob blob-1"></div>
-<div class="blob blob-2"></div>
-<div class="blob blob-3"></div>
+  <!-- Background -->
+  <div class="bg-mesh"></div>
+  <div class="bg-grid"></div>
+  <div class="bg-noise"></div>
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
 
-<!-- REGIME STRIP -->
-<div class="regime-strip">
+  <!-- Regime Strip -->
+  <div class="regime-strip">
     <div class="regime-dot"></div>
-    <span class="regime-label" id="regime-label">SCANNING...</span>
-    <span class="regime-desc">·</span>
+    <span class="regime-text" id="regime-text">REGIME: SCANNING</span>
+    <span class="regime-sep">·</span>
     <span class="regime-desc" id="regime-desc">Fetching market context</span>
-</div>
+  </div>
 
-<!-- NAV -->
-<nav>
-    <div class="nav-left">
-        <span class="nav-wordmark">Vigil</span>
-        <span class="nav-sub">Market Intelligence</span>
+  <!-- Nav -->
+  <nav class="nav">
+    <div class="nav-brand">
+      <span class="nav-wordmark">Vigil</span>
+      <span class="nav-tagline">Market Intelligence</span>
     </div>
     <div class="nav-right">
-        <div class="nav-status">
-            <div class="status-dot"></div>
-            <span class="status-text" id="scan-status">Live · 5 assets</span>
-        </div>
-        <button class="btn-primary" onclick="runPulse()">Run Pulse</button>
+      <div class="nav-live">
+        <div class="live-dot"></div>
+        <span class="live-text" id="live-status">Connecting...</span>
+      </div>
+      <button class="btn-pulse" id="btn-pulse" onclick="runPulse()">Run Pulse</button>
     </div>
-</nav>
+  </nav>
 
-<!-- MAIN -->
-<main>
+  <!-- Main -->
+  <main>
 
-    <!-- BENTO -->
+    <!-- Bento -->
     <div class="bento">
-        <div class="bento-hero card">
-            <div class="card-spotlight"></div>
-            <div class="hero-card">
-                <div>
-                    <div class="hero-title">Alpha Engine</div>
-                    <div class="hero-sub">Institutional performance metrics derived from multi-timeframe signal analysis and edge scoring.</div>
-                </div>
-                <div class="stat-row">
-                    <div class="stat-block">
-                        <div class="stat-label">Profit Factor</div>
-                        <div class="stat-value" id="s-pf">—</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-label">Sharpe Ratio</div>
-                        <div class="stat-value accent" id="s-sharpe">—</div>
-                    </div>
-                    <div class="stat-block">
-                        <div class="stat-label">Win Rate</div>
-                        <div class="stat-value" id="s-wr">—</div>
-                    </div>
-                </div>
+      <div class="bento-hero card">
+        <div class="card-spotlight"></div>
+        <div class="hero-inner">
+          <div>
+            <div class="hero-title">Alpha Engine</div>
+            <div class="hero-sub">Institutional performance metrics from live multi-timeframe signal analysis.</div>
+          </div>
+          <div class="stat-row">
+            <div class="stat">
+              <div class="stat-label">Profit Factor</div>
+              <div class="stat-value" id="s-pf">—</div>
             </div>
-        </div>
-        <div class="bento-health card">
-            <div class="card-spotlight"></div>
-            <div class="health-card">
-                <div class="health-label">SYSTEM HEALTH</div>
-                <div class="health-ring">
-                    <span class="health-num" id="s-trades">0</span>
-                </div>
-                <div class="health-label">Evaluated Signals</div>
+            <div class="stat">
+              <div class="stat-label">Sharpe Ratio</div>
+              <div class="stat-value accent" id="s-sharpe">—</div>
             </div>
+            <div class="stat">
+              <div class="stat-label">Win Rate</div>
+              <div class="stat-value good" id="s-wr">—</div>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div class="bento-health card">
+        <div class="card-spotlight"></div>
+        <div class="health-inner">
+          <div class="health-label">System Health</div>
+          <div class="health-ring">
+            <span class="health-num" id="s-trades">0</span>
+          </div>
+          <div class="health-label">Evaluated Signals</div>
+        </div>
+      </div>
     </div>
 
-    <!-- ALERT FEED -->
-    <div class="section-header">
-        <div class="section-title">Alert Feed</div>
-        <div class="section-meta" id="feed-meta">Loading...</div>
+    <!-- Briefing -->
+    <div id="briefing-container"></div>
+
+    <!-- Feed -->
+    <div class="feed-header">
+      <span class="feed-title">Alert Feed</span>
+      <span class="feed-meta" id="feed-meta">Loading...</span>
     </div>
 
-    <div class="alerts" id="alerts-container">
-        <div class="skeleton" style="height:120px"></div>
-        <div class="skeleton" style="height:120px;opacity:0.7"></div>
-        <div class="skeleton" style="height:120px;opacity:0.4"></div>
+    <div id="alerts-container">
+      <div class="skeleton" style="height:110px"></div>
+      <div class="skeleton" style="height:110px;opacity:.65"></div>
+      <div class="skeleton" style="height:110px;opacity:.35"></div>
     </div>
 
     <div class="footer">
-        <div class="footer-text">
-            Pattern observations only · Not financial advice · Past performance does not guarantee future results<br>
-            The system's silence is as meaningful as its alerts
-        </div>
+      <div class="footer-text">
+        Pattern observations only · Not financial advice · Past performance does not guarantee future results<br>
+        The system's silence is as meaningful as its alerts
+      </div>
     </div>
 
-</main>
+  </main>
 
-<script>
-// ── CONFIG ──────────────────────────────────────────────────────────────────
-
-const ACTION = {
-    ENTER:      { color: '#22c55e', bg: 'rgba(34,197,94,0.08)',  border: 'rgba(34,197,94,0.2)',  icon: '▲' },
-    WAIT:       { color: '#d97706', bg: 'rgba(217,119,6,0.08)',  border: 'rgba(217,119,6,0.2)',  icon: '◐' },
-    AVOID:      { color: '#dc2626', bg: 'rgba(220,38,38,0.08)',  border: 'rgba(220,38,38,0.2)',  icon: '▼' },
-    STAND_DOWN: { color: '#475569', bg: 'rgba(71,85,105,0.06)',  border: 'rgba(71,85,105,0.15)', icon: '◌' },
-    UNKNOWN:    { color: '#334155', bg: 'transparent',           border: '#0f172a',              icon: '·' },
-};
-
-const STATE_COLOR = {
-    BREAKOUT:    '#22c55e', TRENDING_UP:  '#34d399',
-    TRENDING_DOWN:'#f87171',RANGING:      '#64748b',
-    ACCUMULATING:'#818cf8', VOLATILE:     '#f59e0b',
-};
-
-const MTF_COLOR = { UP: '#22c55e', NEUTRAL: '#334155', DOWN: '#dc2626' };
-
-const REGIME_DESC = {
-    TRENDING: 'All signal types performing at or above baseline.',
-    RISK_OFF:  'Market in risk-off mode — caution on all longs.',
-    VOLATILE:  'Elevated volatility — reduce position sizes.',
-    SIDEWAYS:  'Consolidation regime — breakouts less reliable.',
-    UNKNOWN:   'Regime unknown — insufficient data.',
-};
-
-// ── STATE ────────────────────────────────────────────────────────────────────
-
-let expandedId = null;
-
-// ── SPOTLIGHT ────────────────────────────────────────────────────────────────
-
-document.addEventListener('mousemove', e => {
-    document.querySelectorAll('.card').forEach(card => {
-        const r = card.getBoundingClientRect();
-        card.style.setProperty('--mx', `${e.clientX - r.left}px`);
-        card.style.setProperty('--my', `${e.clientY - r.top}px`);
-    });
-});
-
-// ── HELPERS ──────────────────────────────────────────────────────────────────
-
-function decayColor(pct) {
-    return pct > 65 ? '#22c55e' : pct > 35 ? '#d97706' : '#dc2626';
-}
-
-function edgeColor(score) {
-    if (score === null || score === undefined) return '#334155';
-    return score >= 7.5 ? '#22c55e' : score >= 4.5 ? '#d97706' : '#dc2626';
-}
-
-function fmtHours(h) {
-    if (h < 1) return `${Math.round(h * 60)}m`;
-    return `${h.toFixed(1)}h`;
-}
-
-function actionCfg(action) {
-    return ACTION[action] || ACTION.UNKNOWN;
-}
-
-function stateColor(s) {
-    return STATE_COLOR[s] || '#64748b';
-}
-
-// ── RENDER HELPERS ───────────────────────────────────────────────────────────
-
-function renderMTFDots(weekly, daily, recent, expanded = false) {
-    const labels = ['W', 'D', '5D'];
-    const vals   = [weekly, daily, recent];
-    const dots = vals.map((v, i) => `
-        <div class="mtf-dot-group">
-            <div class="mtf-dot" style="background:${MTF_COLOR[v] || '#334155'}" title="${labels[i]}: ${v || 'N/A'}"></div>
-            <span class="mtf-lbl">${labels[i]}</span>
-        </div>
-    `).join('');
-    const label = expanded && weekly ? `<span style="font-family:'JetBrains Mono',monospace;font-size:9px;color:#475569;margin-left:4px">— ${weekly}/${daily}/${recent}</span>` : '';
-    return `<div class="mtf-dots">${dots}${label}</div>`;
-}
-
-function renderTrapWarning(alert) {
-    if (!alert.trap_conviction || alert.trap_conviction <= 0.4) return '';
-    const reasons = (alert.trap_reasons || []).map(r =>
-        `<div class="trap-reason"><span>→</span><span>${r}</span></div>`
-    ).join('');
-    return `
-        <div class="trap-warning">
-            <div class="trap-warning-title">⚠ POTENTIAL ${alert.trap_type || 'BULL TRAP'} · ${Math.round(alert.trap_conviction * 100)}% conviction</div>
-            ${reasons}
-        </div>
-    `;
-}
-
-function renderEdgeBreakdown(alert) {
-    if (alert.edge_score === null || alert.edge_score === undefined) return '';
-    const score = alert.edge_score;
-    const color = edgeColor(score);
-
-    // Reconstruct edge components from what we have
-    const rows = [
-        ['Signal quality',     score > 5 ? (score - 5) * 0.5 + 0.5 : score * 0.1, 3.5],
-        ['MTF alignment',      alert.mtf_alignment === 'FULL_UP' ? 1.5 : alert.mtf_alignment === 'PARTIAL_UP' ? 0.8 : alert.mtf_alignment === 'CONFLICTED' ? -0.3 : -0.8, 1.5],
-        ['State / regime',     alert.days_in_state >= 14 ? 0.8 : alert.days_in_state >= 7 ? 0.4 : 0.1, 1.2],
-        ['Volume strength',    alert.volume_ratio > 3 ? 0.5 : alert.volume_ratio > 2 ? 0.25 : 0.0, 0.8],
-        ['Trap penalty',       alert.trap_conviction ? -(alert.trap_conviction * 3.0) : 0, 0],
-    ];
-
-    const rowsHtml = rows.map(([label, val, max]) => {
-        const isNeg = val < 0;
-        const barColor = isNeg ? '#dc262650' : val >= 1 ? '#22c55e' : '#3b82f6';
-        const barWidth = max > 0 ? Math.min(Math.abs(val) / max * 100, 100) : Math.min(Math.abs(val) / 3 * 100, 100);
-        return `
-            <div class="edge-row">
-                <div class="edge-row-label" style="color:${isNeg ? '#7f1d1d' : '#334155'}">${label}</div>
-                <div class="edge-bar-track">
-                    <div class="edge-bar-fill" style="width:${barWidth}%;background:${barColor}"></div>
-                </div>
-                <div class="edge-row-val" style="color:${isNeg ? '#dc2626' : '#475569'}">${val > 0 ? '+' : ''}${val.toFixed(1)}</div>
-            </div>
-        `;
-    }).join('');
-
-    return `
-        <div class="edge-breakdown">
-            <div class="edge-breakdown-header">
-                <span class="edge-breakdown-title">EDGE BREAKDOWN</span>
-                <span class="edge-big" style="color:${color}">${score}<span class="edge-denom">/10</span></span>
-            </div>
-            ${rowsHtml}
-        </div>
-    `;
-}
-
-function renderExpandedBody(alert) {
-    const trap = renderTrapWarning(alert);
-    const mtf  = (alert.mtf_weekly || alert.mtf_daily || alert.mtf_recent)
-        ? `<div class="mtf-row">${renderMTFDots(alert.mtf_weekly, alert.mtf_daily, alert.mtf_recent, true)}</div>`
-        : '';
-
-    const details = `
-        <div class="detail-grid">
-            ${alert.regime ? `<div class="detail-block"><div class="detail-label">REGIME</div><div class="detail-value">${alert.regime}</div></div>` : ''}
-            ${alert.days_in_state ? `<div class="detail-block"><div class="detail-label">DAYS IN STATE</div><div class="detail-value">${alert.days_in_state}d</div></div>` : ''}
-            ${alert.prev_state ? `<div class="detail-block"><div class="detail-label">PREVIOUS STATE</div><div class="detail-value">${alert.prev_state}</div></div>` : ''}
-            ${alert.accum_conviction ? `<div class="detail-block"><div class="detail-label">ACCUM CONVICTION</div><div class="detail-value ${alert.accum_conviction > 0.7 ? 'good' : 'mid'}">${Math.round(alert.accum_conviction * 100)}%</div></div>` : ''}
-            ${alert.outcome_pct !== null && alert.outcome_pct !== undefined ? `
-                <div class="detail-block">
-                    <div class="detail-label">OUTCOME</div>
-                    <div class="detail-value ${alert.outcome_pct > 0 ? 'good' : 'bad'}">${alert.outcome_pct > 0 ? '+' : ''}${alert.outcome_pct.toFixed(2)}% · ${alert.outcome_result}</div>
-                </div>` : ''}
-            ${alert.volume_ratio ? `<div class="detail-block"><div class="detail-label">VOLUME RATIO</div><div class="detail-value">${alert.volume_ratio}×</div></div>` : ''}
-        </div>
-    `;
-
-    const edge = renderEdgeBreakdown(alert);
-
-    return `<div class="alert-expanded">${trap}${mtf}${details}${edge}</div>`;
-}
-
-function renderAlert(alert, index) {
-    const a        = actionCfg(alert.action);
-    const sColor   = stateColor(alert.state);
-    const decay    = alert.decay || { pct: 50, status: 'UNKNOWN', hours_old: 0 };
-    const dColor   = decayColor(decay.pct);
-    const eColor   = edgeColor(alert.edge_score);
-    const changed  = alert.prev_state && alert.prev_state !== alert.state && alert.prev_state !== 'UNKNOWN';
-    const hasTrap  = alert.trap_conviction && alert.trap_conviction > 0.4;
-    const isExpanded = expandedId === alert.id;
-
-    const decayLabel = { FRESH: 'Fresh', DECAYING: 'Decaying', DETERIORATING: 'Weakening', EXPIRED: 'Expired', UNKNOWN: '' }[decay.status] || decay.status;
-
-    return `
-        <div class="alert-card${isExpanded ? ' expanded' : ''}" onclick="toggleExpand(${alert.id})" id="alert-${alert.id}">
-            <div class="alert-bar" style="background:linear-gradient(180deg,${a.color},${a.color}30)"></div>
-
-            <div class="decay-wrap">
-                <div class="decay-track">
-                    <div class="decay-fill" style="width:${decay.pct}%;background:${dColor}"></div>
-                </div>
-                <div class="decay-meta">
-                    <span class="decay-text" style="color:${dColor}">${decayLabel.toUpperCase()}${decay.hours_old > 0 ? ' · ' + fmtHours(decay.hours_old) : ''}</span>
-                </div>
-            </div>
-
-            <div class="alert-header">
-                <div class="alert-left">
-                    <span class="alert-ticker">${alert.ticker}</span>
-                    <div class="action-badge" style="background:${a.bg};border:1px solid ${a.border};color:${a.color}">
-                        ${a.icon} ${alert.action || '—'}
-                    </div>
-                    ${alert.signal_combination ? `<span class="combo-badge">${alert.signal_combination.replace(/_/g,' ')}</span>` : ''}
-                    ${hasTrap ? `<span class="trap-pill">⚠ TRAP RISK</span>` : ''}
-                    ${renderMTFDots(alert.mtf_weekly, alert.mtf_daily, alert.mtf_recent)}
-                </div>
-                <div class="alert-right">
-                    ${alert.edge_score !== null && alert.edge_score !== undefined
-                        ? `<span class="edge-num" style="color:${eColor}">${alert.edge_score}<span class="edge-denom">/10</span></span>`
-                        : ''}
-                    <span class="alert-time">${alert.date}</span>
-                </div>
-            </div>
-
-            ${(alert.state || alert.prev_state) ? `
-            <div class="state-row">
-                ${changed ? `
-                    <span class="state-pill" style="color:${stateColor(alert.prev_state)};background:${stateColor(alert.prev_state)}18">${alert.prev_state}</span>
-                    <span class="state-arrow">→</span>
-                    <span class="state-pill" style="color:${sColor};background:${sColor}18">${alert.state}</span>
-                ` : `
-                    <span class="state-pill" style="color:${sColor};background:${sColor}18">${alert.state}${alert.days_in_state ? ' · ' + alert.days_in_state + 'd' : ''}</span>
-                `}
-            </div>` : ''}
-
-            ${alert.summary ? `<div class="alert-summary">${alert.summary}</div>` : ''}
-
-            ${isExpanded ? renderExpandedBody(alert) : ''}
-        </div>
-    `;
-}
-
-function toggleExpand(id) {
-    expandedId = expandedId === id ? null : id;
-    renderFeed(window._alerts || []);
-}
-
-// ── RENDER FEED ──────────────────────────────────────────────────────────────
-
-function renderFeed(alerts) {
-    window._alerts = alerts;
-    const container = document.getElementById('alerts-container');
-    const meta      = document.getElementById('feed-meta');
-
-    if (!alerts.length) {
-        container.innerHTML = `
-            <div style="border:1px dashed #0a1628;border-radius:10px;padding:60px;text-align:center">
-                <div style="font-size:28px;color:#0a1628;margin-bottom:16px">◌</div>
-                <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#1e3a5f;letter-spacing:0.14em">SILENCE AS SIGNAL</div>
-                <p style="font-size:13px;color:#1e3a5f;margin-top:10px;font-style:italic">No signals today. Staying out is correct.</p>
-            </div>`;
-        meta.textContent = '0 alerts';
-        return;
-    }
-
-    // Split: actionable vs supplementary
-    const actionable = alerts.filter(a => a.action && ['ENTER','WAIT','AVOID'].includes(a.action) && !a.outcome_result);
-    const rest       = alerts.filter(a => !actionable.includes(a));
-
-    let html = '';
-
-    if (actionable.length) {
-        html += `<div class="divider-label">ACTIVE SIGNALS</div>`;
-        html += actionable.map((a, i) => renderAlert(a, i)).join('');
-    }
-
-    if (rest.length) {
-        html += `<div class="divider-label" style="margin-top:20px">HISTORICAL</div>`;
-        html += rest.slice(0, 20).map((a, i) => renderAlert(a, i)).join('');
-    }
-
-    container.innerHTML = html;
-    meta.textContent = `${alerts.length} alerts · ${actionable.length} active`;
-}
-
-// ── FETCH ────────────────────────────────────────────────────────────────────
-
-async function fetchAll() {
-    try {
-        const [alertsRes, statsRes, regimeRes] = await Promise.all([
-            fetch('/alerts?limit=50'),
-            fetch('/stats'),
-            fetch('/regime'),
-        ]);
-        const alerts = await alertsRes.json();
-        const stats  = await statsRes.json();
-        const regime = await regimeRes.json();
-
-        // Stats
-        document.getElementById('s-pf').textContent     = stats.profit_factor ?? '—';
-        document.getElementById('s-sharpe').textContent  = stats.sharpe ?? '—';
-        document.getElementById('s-wr').textContent      = stats.win_rate ? `${stats.win_rate}%` : '—';
-        document.getElementById('s-trades').textContent  = stats.total_trades ?? '0';
-        document.getElementById('scan-status').textContent = `Live · ${new Set(alerts.map(a => a.ticker)).size} assets`;
-
-        // Regime
-        const r = regime.regime || 'UNKNOWN';
-        const regimeColors = {
-            TRENDING: '#22c55e', RISK_OFF: '#dc2626', VOLATILE: '#d97706', SIDEWAYS: '#5E6AD2', UNKNOWN: '#475569'
-        };
-        document.getElementById('regime-label').textContent = `REGIME: ${r}`;
-        document.getElementById('regime-label').style.color = regimeColors[r] || '#5E6AD2';
-        document.getElementById('regime-desc').textContent  = REGIME_DESC[r] || '';
-
-        // Feed
-        renderFeed(alerts);
-    } catch(e) {
-        console.error('Fetch error:', e);
-    }
-}
-
-async function runPulse() {
-    const btn = document.querySelector('.btn-primary');
-    btn.textContent = 'Scanning...';
-    btn.disabled = true;
-    try {
-        await fetch('/trigger');
-        setTimeout(() => {
-            fetchAll();
-            btn.textContent = 'Run Pulse';
-            btn.disabled = false;
-        }, 4000);
-    } catch(e) {
-        btn.textContent = 'Run Pulse';
-        btn.disabled = false;
-    }
-}
-
-// ── BOOT ─────────────────────────────────────────────────────────────────────
-fetchAll();
-setInterval(fetchAll, 60000);
-</script>
+  <script src="/static/vigil.js"></script>
 </body>
 </html>
