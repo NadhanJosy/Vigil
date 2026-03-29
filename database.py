@@ -1,10 +1,10 @@
 import os
-import sqlite3
 import psycopg2
+import sqlite3
 
 def get_conn():
     db_url = os.environ.get("DATABASE_URL")
-    if db_url and "railway.internal" not in db_url:
+    if db_url:
         return psycopg2.connect(db_url), "postgres"
     else:
         return sqlite3.connect("vigil.db"), "sqlite"
@@ -48,7 +48,10 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state):
     
     ph = "%s" if db_type == "postgres" else "?"
     
-    cursor.execute(f"SELECT id FROM alerts WHERE ticker = {ph} AND date = {ph}", (ticker, str(date)))
+    cursor.execute(
+        f"SELECT id FROM alerts WHERE ticker = {ph} AND date = {ph}",
+        (ticker, str(date))
+    )
     existing = cursor.fetchone()
     
     if not existing:
@@ -69,35 +72,3 @@ def get_all_alerts():
     
     conn.close()
     return rows
-
-def init_db():
-    conn = get_conn()
-    cursor = conn.cursor()
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS alerts (
-            id SERIAL PRIMARY KEY,
-            ticker TEXT,
-            date TEXT,
-            volume_ratio REAL,
-            change_pct REAL,
-            signal_type TEXT,
-            state TEXT
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS outcomes (
-            id SERIAL PRIMARY KEY,
-            alert_id INTEGER REFERENCES alerts(id),
-            ticker TEXT,
-            signal_date TEXT,
-            outcome_date TEXT,
-            price_change_pct REAL,
-            result TEXT
-        )
-    """)
-    
-    conn.commit()
-    conn.close()
-    print("Database ready")
