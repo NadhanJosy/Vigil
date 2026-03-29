@@ -4,10 +4,11 @@ import sqlite3
 
 def get_conn():
     db_url = os.environ.get("DATABASE_URL")
-    if db_url:
-        return psycopg2.connect(db_url), "postgres"
-    else:
-        return sqlite3.connect("vigil.db"), "sqlite"
+    if not db_url:
+        raise Exception("No DATABASE_URL found")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(db_url)
 
 def init_db():
     conn, db_type = get_conn()
