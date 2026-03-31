@@ -460,7 +460,33 @@ async function runPulse() {
   }
 }
 
+// ── WEBSOCKET ─────────────────────────────────────────────────
+
+const socket = io({ reconnection: true, reconnectionDelay: 1000, reconnectionDelayMax: 30000 });
+socket.on("connect", () => console.log("Vigil WS connected"));
+socket.on("new_alert", (data) => { prependAlert(data.data); });
+socket.on("regime_shift", (data) => { showRegimeBanner(data.data); });
+
+function prependAlert(alertData) {
+  // Add new alert to the top of the feed without full refetch
+  _alerts.unshift(alertData);
+  renderFeed(_alerts);
+}
+
+function showRegimeBanner(regimeData) {
+  const r = regimeData.new || 'UNKNOWN';
+  const color = REGIME_COLOR[r] || '#64748b';
+  const desc = REGIME_DESC[r] || '';
+  const lbl = document.getElementById('regime-text');
+  const descEl = document.getElementById('regime-desc');
+  const dot = document.querySelector('.regime-dot');
+  if (lbl) { lbl.textContent = `REGIME: ${r}`; lbl.style.color = color; }
+  if (descEl) descEl.textContent = desc;
+  if (dot) dot.style.background = color;
+  console.log(`Regime shift: ${regimeData.old} -> ${r}`);
+}
+
 // ── BOOT ──────────────────────────────────────────────────────
 
 fetchAll();
-setInterval(fetchAll, 60 * 1000);
+// setInterval(fetchAll, 60 * 1000); // Replaced by WebSocket push

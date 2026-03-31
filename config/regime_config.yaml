@@ -1,0 +1,54 @@
+# Regime Detection Configuration
+# Controls thresholds and parameters for the adaptive regime classifier.
+# These values can be tuned without code changes.
+
+regime:
+  # Timeframes for multi-timeframe analysis
+  timeframes:
+    weekly: "52wk"
+    daily: "60d"
+    recent: "20d"
+
+  # Default thresholds (used when dynamic calibration is unavailable)
+  defaults:
+    atr_pct_volatile: 1.8       # ATR% above this → VOLATILE
+    sma_slope_trending: 0.5     # SMA20 slope % above this → TRENDING
+    adx_threshold: 25.0         # ADX above this → strong trend
+    correlation_threshold: 0.5  # Sector correlation above this → ALIGNED
+
+  # Dynamic threshold calibration
+  calibration:
+    lookback_days: 90           # Rolling window for statistical calibration
+    min_samples: 30             # Minimum data points required
+    std_multiplier: 1.5         # Threshold = mean + std_multiplier * std
+
+  # Regime state machine
+  state_machine:
+    # Minimum bars in a regime before allowing transition (hysteresis)
+    min_bars: 5
+    # Regimes: TRENDING, RISK_OFF, SIDEWAYS, VOLATILE, TRANSITION
+
+# Signal thresholds
+signals:
+  volume_spike:
+    ratio_up: 1.5               # Volume ratio for upside spike
+    ratio_down: 1.5             # Volume ratio for downside spike
+  change_pct:
+    threshold: 2.0              # Minimum price change %
+  accumulation:
+    min_days: 3                 # Minimum accumulation days
+    max_days: 20                # Maximum accumulation days
+
+# Watchlist defaults
+watchlist:
+  default_tickers:
+    - AAPL
+    - MSFT
+    - TSLA
+    - NVDA
+    - AMZN
+  benchmark: "SPY"
+  sector_etfs:
+    XLK: "Technology"
+    XLF: "Financials"
+    XLE: "Energy"

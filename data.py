@@ -4,8 +4,9 @@ import logging
 import json
 import os
 import urllib.request
-from database import (save_alert, init_db, get_recent_alert_for_ticker, 
+from database import (save_alert, init_db, get_recent_alert_for_ticker,
                       get_watchlist, get_latest_regime, get_recent_alert_by_action)
+from services.regime_engine import compute_regime_adaptive
 from advanced_signals import (
     compute_advanced_signal_analysis,
     compute_momentum_confirmation,
@@ -502,7 +503,7 @@ def run_detection():
     # Check for Regime Shift
     try:
         spy_history = yf.Ticker("SPY").history(period=LOOKBACK_PERIOD)
-        regime = compute_regime(spy_history)
+        regime = compute_regime_adaptive(spy_history)
         last_regime = get_latest_regime()
         if last_regime and last_regime != regime:
             logger.info(f"Regime Shift: {last_regime} -> {regime}")
@@ -517,7 +518,7 @@ def run_detection():
     for s in unique_sectors:
         try:
             s_hist = yf.Ticker(s).history(period="60d")
-            sector_regimes[s] = compute_regime(s_hist)
+            sector_regimes[s] = compute_regime_adaptive(s_hist)
         except:
             sector_regimes[s] = "UNKNOWN"
 
@@ -635,6 +636,26 @@ def run_detection():
                     regime=regime, action=action, summary=summary
                 )
                 logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
+
+                # WebSocket push
+                try:
+                    from flask import current_app
+                    current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "ACCUMULATION_DETECTED",
+                                            "edge_score": edge, "action": action, "regime": regime,
+                                            "mtf_alignment": mtf_alignment, "summary": summary})
+                except Exception:
+                    pass
+                # Alert routing
+                try:
+                    from services.alert_router import alert_router
+                    from services.dedup import dedup
+                    fp = dedup.fingerprint(ticker_symbol, "ACCUMULATION_DETECTED", str(date))
+                    if not dedup.exists(fp):
+                        dedup.record(fp)
+                        alert_router.dispatch({"ticker": ticker_symbol, "signal_type": "ACCUMULATION_DETECTED",
+                                               "edge_score": edge, "action": action, "regime": regime, "summary": summary})
+                except Exception:
+                    pass
                 
                 # Notification logic: Enter signals or Elite setups
                 should_notify = (action == "ENTER") or (edge >= 8.0)
@@ -706,6 +727,25 @@ def run_detection():
                         days_in_state=days_in, prev_state=prev_state,
                         regime=regime, action=action, summary=summary
                     )
+                    # WebSocket push
+                    try:
+                        from flask import current_app
+                        current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_UP",
+                                                "edge_score": edge, "action": action, "regime": regime,
+                                                "mtf_alignment": mtf_alignment, "summary": summary})
+                    except Exception:
+                        pass
+                    # Alert routing
+                    try:
+                        from services.alert_router import alert_router
+                        from services.dedup import dedup
+                        fp = dedup.fingerprint(ticker_symbol, "VOLUME_SPIKE_UP", str(date))
+                        if not dedup.exists(fp):
+                            dedup.record(fp)
+                            alert_router.dispatch({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_UP",
+                                                   "edge_score": edge, "action": action, "regime": regime, "summary": summary})
+                    except Exception:
+                        pass
                     trap_note = f" ⚠ TRAP {int(trap_conv*100)}%" if trap_conv else ""
                     logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}{trap_note}")
 
@@ -748,6 +788,25 @@ def run_detection():
                     volatility_desc=volatility_desc,
                     regime=regime, action=action, summary=summary
                 )
+                # WebSocket push
+                try:
+                    from flask import current_app
+                    current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_DOWN",
+                                            "edge_score": edge, "action": action, "regime": regime,
+                                            "mtf_alignment": mtf_alignment, "summary": summary})
+                except Exception:
+                    pass
+                # Alert routing
+                try:
+                    from services.alert_router import alert_router
+                    from services.dedup import dedup
+                    fp = dedup.fingerprint(ticker_symbol, "VOLUME_SPIKE_DOWN", str(date))
+                    if not dedup.exists(fp):
+                        dedup.record(fp)
+                        alert_router.dispatch({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_DOWN",
+                                               "edge_score": edge, "action": action, "regime": regime, "summary": summary})
+                except Exception:
+                    pass
                 logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
 
         except Exception as e:
@@ -760,7 +819,7 @@ def run_backfill():
 
     try:
         spy_history = yf.Ticker("SPY").history(period="60d")
-        regime = compute_regime(spy_history)
+        regime = compute_regime_adaptive(spy_history)
     except:
         regime = "UNKNOWN"
 

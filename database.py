@@ -1,5 +1,6 @@
 import os
 import json
+import threading
 import psycopg2
 from psycopg2 import pool
 import logging
@@ -7,8 +8,9 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-# Initialize a global connection pool
+# Initialize a global connection pool with thread-safe initialization
 _pool = None
+_pool_lock = threading.Lock()
 
 def get_conn():
     global _pool
@@ -19,13 +21,15 @@ def get_conn():
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     
     if _pool is None:
-        try:
-            # Create a pool with 1 min and 10 max connections
-            _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, db_url)
-            logger.info("Database connection pool initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize connection pool: {e}")
-            return psycopg2.connect(db_url)
+        with _pool_lock:
+            if _pool is None:  # Double-check after acquiring lock
+                try:
+                    # Create a pool with 1 min and 10 max connections
+                    _pool = psycopg2.pool.ThreadedConnectionPool(1, 10, db_url)
+                    logger.info("Database connection pool initialized")
+                except Exception as e:
+                    logger.error(f"Failed to initialize connection pool: {e}")
+                    return psycopg2.connect(db_url)
     
     return _pool.getconn()
 
@@ -49,6 +53,7 @@ def get_db_cursor():
             conn.close()
 
 def init_db():
+    """Initializes tables for alerts and watchlist."""
     with get_db_cursor() as cursor:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS alerts (
@@ -79,9 +84,72 @@ def init_db():
                 created_at TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+
         # Optimization: Add indices for high-speed dashboard queries
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_ticker_date ON alerts(ticker, date);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_alerts_action ON alerts(action);")
+
+        # Phase 2: Alert delivery tracking and deduplication tables
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alert_deliveries (
+                id SERIAL PRIMARY KEY, alert_id INTEGER, channel TEXT,
+                status TEXT, error TEXT, sent_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS alert_dedup (
+                fingerprint TEXT PRIMARY KEY, alert_id INTEGER, expires_at TIMESTAMPTZ
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_deliveries_ch ON alert_deliveries(channel, sent_at)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_dedup_exp ON alert_dedup(expires_at)")
+
+        # Phase 3: Backtesting infrastructure tables
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_runs (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                config JSONB,
+                start_date TEXT,
+                end_date TEXT,
+                tickers TEXT[],
+                status TEXT DEFAULT 'completed',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_results (
+                id SERIAL PRIMARY KEY,
+                run_id INTEGER REFERENCES backtest_runs(id),
+                ticker TEXT,
+                entry_date TEXT,
+                entry_price REAL,
+                exit_date TEXT,
+                exit_price REAL,
+                pnl REAL,
+                slippage REAL,
+                commission REAL,
+                edge_score REAL
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS backtest_metrics (
+                id SERIAL PRIMARY KEY,
+                run_id INTEGER REFERENCES backtest_runs(id),
+                sharpe REAL,
+                sortino REAL,
+                calmar REAL,
+                max_drawdown REAL,
+                win_rate REAL,
+                profit_factor REAL,
+                total_trades INTEGER,
+                avg_win_pct REAL,
+                avg_loss_pct REAL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bt_results_run ON backtest_results(run_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_bt_metrics_run ON backtest_metrics(run_id)")
     logger.info("Database initialized and optimized.")
 
 def add_to_watchlist(ticker):
@@ -254,11 +322,17 @@ def evaluate_outcomes():
 def get_system_metrics():
     """Calculates Institutional Performance Metrics (Sharpe, Profit Factor)."""
     with get_db_cursor() as cursor:
-        cursor.execute("""
-            SELECT outcome_pct FROM alerts 
-            WHERE outcome_result IS NOT NULL AND outcome_pct IS NOT NULL
-        """)
-        returns = [r[0] for r in cursor.fetchall()]
+        cursor.execute("SELECT outcome_pct, signal_type FROM alerts WHERE outcome_result IS NOT NULL")
+        rows = cursor.fetchall()
+        returns = [r[0] for r in rows]
+        
+        # Win rate by signal type
+        by_type = {}
+        for ret, s_type in rows:
+            if s_type not in by_type: by_type[s_type] = []
+            by_type[s_type].append(1 if ret > 0 else 0)
+        
+        win_rates_by_type = {k: round(sum(v)/len(v)*100, 1) for k, v in by_type.items() if v}
 
     if not returns:
         return {"sharpe": 0, "profit_factor": 0, "win_rate": 0}
@@ -279,5 +353,127 @@ def get_system_metrics():
         "win_rate": round(win_rate, 2),
         "profit_factor": round(profit_factor, 2),
         "sharpe": round(sharpe, 2),
-        "total_trades": len(returns)
+        "total_trades": len(returns),
+        "win_rates_by_type": win_rates_by_type
     }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Backtest persistence helpers
+# ---------------------------------------------------------------------------
+
+def save_backtest_run(name, config, start_date, end_date, tickers, status="completed"):
+    """Insert a backtest run record and return its id."""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO backtest_runs (name, config, start_date, end_date, tickers, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (name, json.dumps(config), start_date, end_date, tickers, status))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+
+def save_backtest_results(run_id, results, metrics):
+    """Persist individual trade results and aggregate metrics for a backtest run."""
+    with get_db_cursor() as cursor:
+        for trade in results:
+            cursor.execute("""
+                INSERT INTO backtest_results
+                    (run_id, ticker, entry_date, entry_price, exit_date, exit_price,
+                     pnl, slippage, commission, edge_score)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                run_id,
+                trade.get("ticker"),
+                trade.get("entry_date"),
+                trade.get("entry_price"),
+                trade.get("exit_date"),
+                trade.get("exit_price"),
+                trade.get("pnl"),
+                trade.get("slippage"),
+                trade.get("commission"),
+                trade.get("edge_score"),
+            ))
+        cursor.execute("""
+            INSERT INTO backtest_metrics
+                (run_id, sharpe, sortino, calmar, max_drawdown, win_rate,
+                 profit_factor, total_trades, avg_win_pct, avg_loss_pct)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            run_id,
+            metrics.get("sharpe"),
+            metrics.get("sortino"),
+            metrics.get("calmar"),
+            metrics.get("max_drawdown"),
+            metrics.get("win_rate"),
+            metrics.get("profit_factor"),
+            metrics.get("total_trades"),
+            metrics.get("avg_win_pct"),
+            metrics.get("avg_loss_pct"),
+        ))
+
+
+def get_backtest_runs(limit=50):
+    """List recent backtest runs."""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT id, name, start_date, end_date, tickers, status, created_at
+            FROM backtest_runs ORDER BY created_at DESC LIMIT %s
+        """, (limit,))
+        rows = cursor.fetchall()
+        return [
+            {
+                "id": r[0],
+                "name": r[1],
+                "start_date": r[2],
+                "end_date": r[3],
+                "tickers": r[4],
+                "status": r[5],
+                "created_at": r[6].isoformat() if r[6] else None,
+            }
+            for r in rows
+        ]
+
+
+def get_backtest_results(run_id):
+    """Get trade results and metrics for a specific backtest run."""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT id, ticker, entry_date, entry_price, exit_date, exit_price,
+                   pnl, slippage, commission, edge_score
+            FROM backtest_results WHERE run_id = %s ORDER BY id
+        """, (run_id,))
+        trades = [
+            {
+                "id": r[0],
+                "ticker": r[1],
+                "entry_date": r[2],
+                "entry_price": r[3],
+                "exit_date": r[4],
+                "exit_price": r[5],
+                "pnl": r[6],
+                "slippage": r[7],
+                "commission": r[8],
+                "edge_score": r[9],
+            }
+            for r in cursor.fetchall()
+        ]
+        cursor.execute("""
+            SELECT sharpe, sortino, calmar, max_drawdown, win_rate,
+                   profit_factor, total_trades, avg_win_pct, avg_loss_pct
+            FROM backtest_metrics WHERE run_id = %s LIMIT 1
+        """, (run_id,))
+        row = cursor.fetchone()
+        metrics = {
+            "sharpe": row[0],
+            "sortino": row[1],
+            "calmar": row[2],
+            "max_drawdown": row[3],
+            "win_rate": row[4],
+            "profit_factor": row[5],
+            "total_trades": row[6],
+            "avg_win_pct": row[7],
+            "avg_loss_pct": row[8],
+        } if row else {}
+        return {"trades": trades, "metrics": metrics}

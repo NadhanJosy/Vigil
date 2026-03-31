@@ -4,11 +4,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def compute_sector_correlation(ticker, history, sector_history):
-    """Calculates 20-day correlation between ticker and sector ETF."""
-    correlation = history['Close'].pct_change().corr(sector_history['Close'].pct_change())
-    return {"status": "ALIGNED" if correlation > 0.5 else "DIVERGENT", "strength": round(float(correlation), 2)}
-
 def compute_advanced_signal_analysis(ticker, history, spy_history, base_edge):
     """
     The 'Secret Sauce' Engine. 
@@ -37,11 +32,18 @@ def compute_advanced_signal_analysis(ticker, history, spy_history, base_edge):
     sector_gate = {"status": "ALIGNED", "strength": 0.8}
     gates['sector_correlation'] = sector_gate
 
+    # 5. AI Sentiment Analysis (Item 8) — placeholder until real sentiment source is integrated
+    sentiment = 0.55  # neutral baseline
+    enhancements['sentiment_score'] = sentiment
+
     # Final Edge Refinement
     # Institutional logic: Reward tight consolidations and momentum confluence
     final_edge = float(base_edge)
     if pa_quality > 0.7: final_edge += 0.5
     if mom_score > 70: final_edge += 0.7
+    if sentiment > 0.6: final_edge += 0.4 # Boost for positive sentiment
+    if sentiment < 0.3: final_edge -= 0.5 # Penalty for negative sentiment
+
     if enhancements['volatility'] == "QUIET_STRENGTH": final_edge += 0.4
     
     # Kelly Sizing Adjustment: Risk more on high-quality price action
@@ -57,7 +59,8 @@ def compute_advanced_signal_analysis(ticker, history, spy_history, base_edge):
         "enhancements": enhancements,
         "gates": gates,
         "warnings": warnings,
-        "pa_quality": pa_quality
+        "pa_quality": pa_quality,
+        "sentiment_score": sentiment
     }
 
 def compute_momentum_confirmation(history):

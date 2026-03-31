@@ -320,9 +320,9 @@ For issues or questions:
 
 ---
 
-## 📄 License
+## 📄 Legal
 
-This project is proprietary. All rights reserved.
+**Proprietary and Confidential.** This software is for private use only. Unauthorized copying, distribution, or modification is strictly prohibited.
 
 ---
 
