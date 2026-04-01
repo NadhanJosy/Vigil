@@ -150,6 +150,19 @@ def init_db():
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_bt_results_run ON backtest_results(run_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_bt_metrics_run ON backtest_metrics(run_id)")
+
+        # Phase 4: Correlation matrix storage
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS correlation_matrix (
+                id SERIAL PRIMARY KEY,
+                computed_at TIMESTAMPTZ DEFAULT NOW(),
+                tickers TEXT[],
+                matrix JSONB,
+                period TEXT,
+                method TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_corr_computed ON correlation_matrix(computed_at DESC)")
     logger.info("Database initialized and optimized.")
 
 def add_to_watchlist(ticker):
@@ -477,3 +490,36 @@ def get_backtest_results(run_id):
             "avg_loss_pct": row[8],
         } if row else {}
         return {"trades": trades, "metrics": metrics}
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Correlation matrix persistence
+# ---------------------------------------------------------------------------
+
+def save_correlation_matrix(tickers, matrix, period, method):
+    """Persist a computed correlation matrix."""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            INSERT INTO correlation_matrix (tickers, matrix, period, method)
+            VALUES (%s, %s, %s, %s)
+        """, (tickers, json.dumps(matrix), period, method))
+
+
+def get_latest_correlation():
+    """Get the most recent correlation matrix."""
+    with get_db_cursor() as cursor:
+        cursor.execute("""
+            SELECT id, tickers, matrix, period, method, computed_at
+            FROM correlation_matrix ORDER BY computed_at DESC LIMIT 1
+        """)
+        row = cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "tickers": row[1],
+            "matrix": row[2],
+            "period": row[3],
+            "method": row[4],
+            "computed_at": row[5].isoformat() if row[5] else None,
+        }

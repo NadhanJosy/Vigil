@@ -22,7 +22,8 @@ from flask_socketio import SocketIO, emit
 
 from database import (init_db, get_alerts, save_alert,
                       add_to_watchlist, remove_from_watchlist, get_watchlist, get_system_metrics,
-                      save_backtest_run, save_backtest_results, get_backtest_runs, get_backtest_results)
+                      save_backtest_run, save_backtest_results, get_backtest_runs, get_backtest_results,
+                      save_correlation_matrix, get_latest_correlation)
 from data import run_detection, run_backfill, compute_regime
 from services.observability import (
     configure_structured_logging,
@@ -309,6 +310,92 @@ def create_app() -> Flask:
 
         threading.Thread(target=_run_backtest, args=(config,)).start()
         return jsonify({"status": "backtest started", "config": config.to_dict()})
+
+    # -----------------------------------------------------------------------
+    # Phase 4: Correlation & Portfolio Risk Endpoints
+    # -----------------------------------------------------------------------
+
+    @app.route("/correlation", methods=["GET"])
+    @_limit("10 per minute")
+    def correlation():
+        """Get the latest computed correlation matrix."""
+        corr = get_latest_correlation()
+        if corr is None:
+            return jsonify({"error": "No correlation matrix computed yet"}), 404
+        return jsonify(corr)
+
+    @app.route("/correlation/compute", methods=["POST"])
+    @_limit("2 per hour")
+    @require_api_key
+    def correlation_compute():
+        """Compute correlation matrix for watchlist tickers."""
+        import yfinance as yf
+        from services.correlation_engine import get_correlation_engine
+
+        data = request.get_json(silent=True) or {}
+        tickers = data.get("tickers") or get_watchlist()
+        if isinstance(tickers, list) and len(tickers) > 0 and isinstance(tickers[0], dict):
+            tickers = [t.get("ticker") if isinstance(t, dict) else t for t in tickers]
+
+        if len(tickers) < 2:
+            return jsonify({"error": "Need at least 2 tickers"}), 400
+
+        def _compute_corr():
+            engine = get_correlation_engine()
+            histories = {}
+            for t in tickers:
+                try:
+                    histories[t] = yf.Ticker(t).history(period="60d")
+                except Exception:
+                    pass
+            result = engine.compute_correlation_matrix(histories)
+            if result:
+                save_correlation_matrix(
+                    result.tickers, result.matrix, result.period, result.method
+                )
+
+        threading.Thread(target=_compute_corr).start()
+        return jsonify({"status": "correlation computation started", "tickers": tickers})
+
+    @app.route("/portfolio/risk", methods=["GET"])
+    @_limit("10 per minute")
+    def portfolio_risk():
+        """Compute portfolio risk metrics for current positions."""
+        import yfinance as yf
+        from services.portfolio_risk import get_risk_analyzer
+
+        # Get positions from query params or use default watchlist as positions
+        data = request.get_json(silent=True) if request.method == "POST" else {}
+        positions = data.get("positions", {})
+        tickers = list(positions.keys()) if positions else [t.get("ticker") for t in get_watchlist()]
+
+        if not tickers:
+            return jsonify({"error": "No positions or watchlist tickers"}), 400
+
+        histories = {}
+        for t in tickers:
+            try:
+                histories[t] = yf.Ticker(t).history(period="60d")
+            except Exception:
+                pass
+
+        # Default positions if not provided
+        if not positions:
+            positions = {t: {"quantity": 10, "avg_cost": 0} for t in tickers}
+
+        analyzer = get_risk_analyzer()
+        result = analyzer.compute_portfolio_risk(positions, histories)
+        return jsonify({
+            "total_value": result.total_value,
+            "daily_var_95": result.daily_var_95,
+            "daily_var_99": result.daily_var_99,
+            "cvar_95": result.cvar_95,
+            "cvar_99": result.cvar_99,
+            "annualized_volatility": result.annualized_volatility,
+            "beta": result.beta,
+            "sharpe_ratio": result.sharpe_ratio,
+            "max_drawdown": result.max_drawdown,
+        })
 
     @app.route("/auth/token", methods=["POST"])
     @_limit("10 per hour")
