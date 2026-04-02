@@ -4,6 +4,7 @@ flask-limiter>=3.5
 yfinance>=0.2
 apscheduler>=3.10
 gunicorn>=21.2
+eventlet>=0.35
 psycopg2-binary>=2.9
 numpy>=1.24
 pandas>=2.0

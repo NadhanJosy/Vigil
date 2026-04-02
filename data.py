@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import urllib.request
+from datetime import timedelta
 from database import (save_alert, init_db, get_recent_alert_for_ticker,
                       get_watchlist, get_latest_regime, get_recent_alert_by_action)
 from services.regime_engine import compute_regime_adaptive
@@ -11,7 +12,6 @@ from advanced_signals import (
     compute_advanced_signal_analysis,
     compute_momentum_confirmation,
     compute_volatility_bonus,
-    compute_sector_correlation,
     compute_price_action_quality,
     compute_anomaly_score
 )
@@ -569,9 +569,6 @@ def run_detection():
             sl_level = close_price - (2.0 * atr)
             tp_level = close_price + (4.0 * atr)
             
-            # Revolutionary Metrics: Alpha and Sizing
-            alpha = compute_relative_strength(history, spy_history)
-            
             # --- Institutional Metric Initialization ---
             # Ensures robustness for every ticker iteration
             shares          = 0
@@ -583,7 +580,7 @@ def run_detection():
             pass_advanced_analysis = False
 
             try:
-                advanced = compute_advanced_signal_analysis(ticker_symbol, history, spy_history, 5.0) # Base
+                compute_advanced_signal_analysis(ticker_symbol, history, spy_history, 5.0)
                 pass_advanced_analysis = True
             except Exception as e:
                 logger.warning(f"Advanced analysis failed for {ticker_symbol}: {e}")
@@ -847,7 +844,6 @@ def run_backfill():
             volatility_desc = compute_volatility_bonus(window)
             sector_gate = "BACKFILL"
 
-            from datetime import timedelta
             cooldown_ok      = last_accum_date is None or (date - last_accum_date).days >= 3
             has_recent_accum = last_accum_date is not None and (date - last_accum_date).days <= 7
 

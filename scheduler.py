@@ -1,3 +1,4 @@
+import sys
 from apscheduler.schedulers.blocking import BlockingScheduler
 import subprocess
 import datetime
@@ -9,8 +10,14 @@ scheduler = BlockingScheduler()
 
 @scheduler.scheduled_job("cron", hour=21, minute=0, timezone="America/New_York")
 def run_detection():
-    logger.info(f"Triggering detection job via subprocess...")
-    subprocess.run(["python", "data.py"])
+    logger.info("Triggering detection job via subprocess...")
+    result = subprocess.run(
+        [sys.executable, "data.py"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.error(f"detection job failed: {result.stderr}")
 
 logger.info("Scheduler started — detection runs daily at 21:00 ET")
 scheduler.start()

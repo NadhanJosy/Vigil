@@ -3,6 +3,7 @@ import json
 import threading
 import psycopg2
 from psycopg2 import pool
+from psycopg2.extras import Json
 import logging
 from contextlib import contextmanager
 
@@ -502,7 +503,7 @@ def save_correlation_matrix(tickers, matrix, period, method):
         cursor.execute("""
             INSERT INTO correlation_matrix (tickers, matrix, period, method)
             VALUES (%s, %s, %s, %s)
-        """, (tickers, json.dumps(matrix), period, method))
+        """, (tickers, Json(matrix), period, method))
 
 
 def get_latest_correlation():

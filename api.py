@@ -35,6 +35,7 @@ from services.security import (
     alert_query_schema,
     watchlist_schema,
     validate_query_params,
+    backtest_run_schema,
     validate_json_body,
     require_jwt,
     generate_jwt,
@@ -98,7 +99,9 @@ def create_app() -> Flask:
         @wraps(f)
         def decorated_function(*args, **kwargs):
             api_key = os.environ.get("VIGIL_API_KEY")
-            if api_key and request.headers.get('X-API-KEY') != api_key:
+            if not api_key:
+                return jsonify({"error": "API key not configured"}), 500
+            if request.headers.get('X-API-KEY') != api_key:
                 abort(401)
             return f(*args, **kwargs)
         return decorated_function
@@ -265,16 +268,8 @@ def create_app() -> Flask:
 
     @app.route("/backtest/run", methods=["POST"])
     @_limit("2 per hour")
+    @validate_json_body(backtest_run_schema)
     @require_api_key
-    @validate_json_body({
-        "name": {"type": "string", "required": False},
-        "start_date": {"type": "string", "required": True},
-        "end_date": {"type": "string", "required": True},
-        "tickers": {"type": "list", "required": True},
-        "capital": {"type": "number", "required": False, "default": 100000},
-        "slippage_bps": {"type": "number", "required": False, "default": 5},
-        "commission_bps": {"type": "number", "required": False, "default": 10},
-    })
     def backtest_run():
         """Start a backtest run asynchronously."""
         from backtest import BacktestEngine, BacktestConfig, compute_metrics
@@ -286,24 +281,61 @@ def create_app() -> Flask:
             start_date=data["start_date"],
             end_date=data["end_date"],
             tickers=data["tickers"],
-            capital=data.get("capital", 100000),
+            initial_capital=data.get("capital", 100000),
             slippage_bps=data.get("slippage_bps", 5),
             commission_bps=data.get("commission_bps", 10),
         )
 
         def _run_backtest(cfg: BacktestConfig):
+            import yfinance as yf
+
             engine = BacktestEngine(cfg)
-            result = engine.run()
-            save_backtest_run(
+
+            # Load historical signals from the database for the requested tickers
+            signals = []
+            for ticker in cfg.tickers:
+                alerts = get_alerts(ticker=ticker, limit=1000)
+                for row in alerts:
+                    # row columns: id, ticker, date, volume_ratio, change_pct, signal_type, state,
+                    #   outcome_pct, outcome_result, trap_conviction, trap_type, trap_reasons,
+                    #   accum_conviction, accum_days, accum_price_range_pct,
+                    #   mtf_weekly, mtf_daily, mtf_recent, mtf_alignment,
+                    #   created_at, signal_combination, edge_score, days_in_state,
+                    #   adx_strength, momentum_score, volatility_desc, sector_gate,
+                    #   prev_state, regime, action, summary
+                    action = row[29]  # action column
+                    if action not in ("ENTER", "EXIT", "STOP"):
+                        continue
+                    signals.append({
+                        "ticker": row[1],
+                        "date": str(row[2]),
+                        "action": action,
+                        "edge_score": float(row[21]) if row[21] is not None else 5.0,
+                        "signal_type": row[5],
+                    })
+
+            # Fetch price data for each ticker
+            price_data: dict[str, Any] = {}
+            for ticker in cfg.tickers:
+                try:
+                    hist = yf.Ticker(ticker).history(
+                        start=cfg.start_date, end=cfg.end_date
+                    )
+                    if not hist.empty:
+                        price_data[ticker] = hist
+                except Exception:
+                    pass
+
+            result = engine.run(signals=signals, price_data=price_data)
+            run_id = save_backtest_run(
                 name=cfg.name,
                 config=cfg.to_dict(),
                 start_date=cfg.start_date,
                 end_date=cfg.end_date,
                 tickers=cfg.tickers,
             )
-            # Note: run_id would be returned by save_backtest_run in a full implementation
             save_backtest_results(
-                run_id=1,  # Placeholder - would be actual run_id from above
+                run_id=run_id,
                 results=[t.__dict__ for t in result.trades],
                 metrics=result.metrics.__dict__ if result.metrics else {},
             )
@@ -357,7 +389,7 @@ def create_app() -> Flask:
         threading.Thread(target=_compute_corr).start()
         return jsonify({"status": "correlation computation started", "tickers": tickers})
 
-    @app.route("/portfolio/risk", methods=["GET"])
+    @app.route("/portfolio/risk", methods=["GET", "POST"])
     @_limit("10 per minute")
     def portfolio_risk():
         """Compute portfolio risk metrics for current positions."""
@@ -367,7 +399,11 @@ def create_app() -> Flask:
         # Get positions from query params or use default watchlist as positions
         data = request.get_json(silent=True) if request.method == "POST" else {}
         positions = data.get("positions", {})
-        tickers = list(positions.keys()) if positions else [t.get("ticker") for t in get_watchlist()]
+        if positions:
+            tickers = list(positions.keys())
+        else:
+            watchlist = get_watchlist()
+            tickers = [t.get("ticker") if isinstance(t, dict) else t for t in watchlist]
 
         if not tickers:
             return jsonify({"error": "No positions or watchlist tickers"}), 400
@@ -424,11 +460,11 @@ def create_app() -> Flask:
 
     def emit_alert(alert_data: dict) -> None:
         from config.events import build_alert_payload
-        socketio.emit("new_alert", build_alert_payload(alert_data), namespace="/alerts")
+        socketio.emit("new_alert", build_alert_payload(alert_data))
 
     def emit_regime_shift(old_regime: str, new_regime: str) -> None:
         from config.events import build_regime_payload
-        socketio.emit("regime_shift", build_regime_payload(old_regime, new_regime), namespace="/regime")
+        socketio.emit("regime_shift", build_regime_payload(old_regime, new_regime))
 
     app.emit_alert = emit_alert
     app.emit_regime_shift = emit_regime_shift

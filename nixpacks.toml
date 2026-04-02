@@ -1,11 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311"]
+nixPkgs = ["python313"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt"]
 
 [start]
-cmd = "gunicorn --bind 0.0.0.0:$PORT --workers ${GUNICORN_WORKERS:-2} --threads ${GUNICORN_THREADS:-4} --timeout 120 --access-logfile - api:app"
+cmd = "gunicorn --bind 0.0.0.0:$PORT --workers ${GUNICORN_WORKERS:-2} --worker-class eventlet --timeout 120 --access-logfile - api:app"
 
 [variables]
 DB_POOL_MIN = "${DB_POOL_MIN:-2}"

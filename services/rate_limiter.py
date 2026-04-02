@@ -24,8 +24,8 @@ class ChannelRateLimiter:
             conn = get_conn()
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT COUNT(*) FROM alert_deliveries WHERE channel=%s AND status='sent' AND sent_at>NOW()-INTERVAL '%s seconds'",
-                    (channel, limit.window_seconds),
+                    "SELECT COUNT(*) FROM alert_deliveries WHERE channel=%s AND status='sent' AND sent_at>NOW()-%s::interval",
+                    (channel, f"{limit.window_seconds} seconds"),
                 )
                 count = cur.fetchone()[0]
             if _pool:

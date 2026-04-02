@@ -240,6 +240,10 @@ class RegimeEngine:
         Apply state machine with hysteresis to prevent whipsaw.
         Requires minimum days in current regime and confidence threshold.
         """
+        # Truncate history before reading it
+        if len(self._history) > 100:
+            self._history = self._history[-100:]
+
         if not self._history:
             return max(scores, key=scores.get)  # type: ignore[arg-type]
 

@@ -7,7 +7,7 @@ Replays historical signals and price data to evaluate strategy performance.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from typing import Any
 
@@ -30,6 +30,10 @@ class BacktestConfig:
     slippage_bps: float = 10.0
     commission_bps: float = 10.0
     max_position_pct: float = 10.0  # max % of capital per position
+
+    def to_dict(self) -> dict:
+        """Return a dictionary representation of the config."""
+        return asdict(self)
 
 
 @dataclass

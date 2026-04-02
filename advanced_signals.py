@@ -6,9 +6,11 @@ logger = logging.getLogger(__name__)
 
 def compute_advanced_signal_analysis(ticker, history, spy_history, base_edge):
     """
-    The 'Secret Sauce' Engine. 
+    The 'Secret Sauce' Engine.
     Combines multiple institutional factors into a final conviction score.
     """
+    # Use ticker parameter for logging/tracing
+    logger.debug(f"Computing advanced analysis for {ticker}")
     warnings = []
     enhancements = {}
     gates = {}

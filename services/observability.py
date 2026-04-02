@@ -83,6 +83,7 @@ class MetricsCollector:
         key = f"{method}:{endpoint}:{status}"
         self._request_counts[key] = self._request_counts.get(key, 0) + 1
         self._latencies.append(latency)
+        self._latencies = self._latencies[-1000:]
         if status >= 500:
             err_key = f"server_error:{endpoint}"
             self._error_counts[err_key] = self._error_counts.get(err_key, 0) + 1
@@ -99,12 +100,15 @@ class MetricsCollector:
     def get_summary(self) -> dict[str, Any]:
         if not self._latencies:
             return {"p50": 0, "p95": 0, "p99": 0, "count": 0, "active": self._active_requests}
-        sorted_latencies = sorted(self._latencies)
-        n = len(sorted_latencies)
+        import heapq
+        n = len(self._latencies)
+        p50 = heapq.nsmallest(int(n * 50) + 1, self._latencies)[-1] if n > 1 else self._latencies[0]
+        p95 = heapq.nsmallest(int(n * 95 // 100) + 1, self._latencies)[-1] if n > 1 else self._latencies[0]
+        p99 = heapq.nsmallest(int(n * 99 // 100) + 1, self._latencies)[-1] if n > 1 else self._latencies[0]
         return {
-            "p50": round(sorted_latencies[int(n * 0.50)] * 1000, 2),
-            "p95": round(sorted_latencies[int(n * 0.95)] * 1000, 2),
-            "p99": round(sorted_latencies[int(n * 0.99)] * 1000, 2),
+            "p50": round(p50 * 1000, 2),
+            "p95": round(p95 * 1000, 2),
+            "p99": round(p99 * 1000, 2),
             "count": n,
             "active": self._active_requests,
             "request_counts": dict(self._request_counts),

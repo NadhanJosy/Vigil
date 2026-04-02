@@ -21,6 +21,7 @@ health_bp = Blueprint("health", __name__)
 
 def _get_last_detection_time() -> Any | None:
     """Fetch the most recent detection run timestamp from the database."""
+    conn = None
     try:
         conn = get_conn()
         with conn.cursor() as cursor:
@@ -35,10 +36,11 @@ def _get_last_detection_time() -> Any | None:
     finally:
         try:
             from database import _pool
-            if _pool:
-                _pool.putconn(conn)
-            else:
-                conn.close()
+            if conn is not None:
+                if _pool:
+                    _pool.putconn(conn)
+                else:
+                    conn.close()
         except Exception:
             pass
     return None

@@ -174,6 +174,18 @@ def cache_result(key_prefix: str, ttl: int = 300):
 
 def invalidate_cache(key_prefix: str) -> None:
     """Invalidate all cache entries with a given prefix."""
-    # Note: This is a simplified implementation; production would use
-    # Redis SCAN or key patterns for proper prefix-based invalidation
-    get_cache().clear()
+    cache = get_cache()
+    if isinstance(cache, MemoryCache):
+        keys_to_delete = [k for k in cache._store if k.startswith(key_prefix)]
+        for k in keys_to_delete:
+            del cache._store[k]
+    elif isinstance(cache, RedisCache) and cache.available:
+        try:
+            for key in cache._redis.scan_iter(f"{key_prefix}*"):
+                cache._redis.delete(key)
+        except Exception:
+            pass
+    else:
+        keys_to_delete = [k for k in _memory_cache if k.startswith(key_prefix)]
+        for k in keys_to_delete:
+            _memory_cache.pop(k, None)

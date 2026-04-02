@@ -6,6 +6,7 @@ and hierarchical clustering for portfolio risk analytics.
 """
 
 import logging
+from datetime import datetime
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass, field
@@ -97,7 +98,7 @@ class CorrelationEngine:
                     rolling = returns_df[[t1, t2]].rolling(20).corr().dropna()
                     if len(rolling) > 0:
                         # Extract pairwise rolling correlations
-                        pairwise = rolling.xs(t1, level=1)[t2] if t1 in rolling.columns.get_level_values(0) else None
+                        pairwise = rolling.xs(t1, level=0)[t2] if t1 in rolling.columns.get_level_values(0) else None
                         if pairwise is not None and len(pairwise) > 0:
                             stability[key] = round(float(pairwise.std()), 4)
                         else:
@@ -111,6 +112,7 @@ class CorrelationEngine:
             period=f"{self.lookback_days}d",
             method=self.method,
             stability_scores=stability,
+            computed_at=datetime.utcnow().isoformat(),
         )
 
     def compute_clusters(

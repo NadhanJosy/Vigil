@@ -28,6 +28,7 @@ class DistributedLock:
         self.timeout = timeout
         self._redis = None
         self._thread_lock = threading.Lock()
+        self._owner_token: Optional[str] = None
 
         # Try to initialize Redis
         try:
@@ -50,7 +51,16 @@ class DistributedLock:
             logger.warning(f"Redis connection failed for lock '{name}': {e}, using threading lock")
             self._redis = None
 
-    def acquire(self, blocking: bool = False) -> bool:
+    def acquire(self, blocking: bool = False) -> str:
+        """
+        Acquire the lock.
+
+        Args:
+            blocking: If True, wait up to timeout seconds. If False, return immediately.
+
+        Returns:
+            Owner token string if lock acquired, empty string otherwise.
+        """
         """
         Acquire the lock.
 
@@ -65,68 +75,89 @@ class DistributedLock:
         else:
             return self._acquire_thread(blocking)
 
-    def release(self) -> None:
-        """Release the lock."""
+    def release(self, owner_token: str = "") -> bool:
+        """Release the lock with owner validation."""
         if self._redis is not None:
-            self._release_redis()
+            return self._release_redis(owner_token)
         else:
-            self._release_thread()
+            return self._release_thread(owner_token)
 
-    def _acquire_redis(self, blocking: bool) -> bool:
-        """Acquire lock using Redis SET NX."""
+    def _acquire_redis(self, blocking: bool) -> str:
+        """Acquire lock using Redis SET NX. Returns owner token or empty string."""
+        import uuid
         try:
+            owner_token = str(uuid.uuid4())
             if blocking:
-                # Try to acquire with retry
                 deadline = time.time() + self.timeout
                 while time.time() < deadline:
-                    acquired = self._redis.set(self.name, "1", nx=True, ex=self.timeout)
+                    acquired = self._redis.set(self.name, owner_token, nx=True, ex=self.timeout)
                     if acquired:
                         logger.debug(f"Acquired distributed lock: {self.name}")
-                        return True
+                        return owner_token
                     time.sleep(1)
-                return False
+                return ""
             else:
-                acquired = self._redis.set(self.name, "1", nx=True, ex=self.timeout)
+                acquired = self._redis.set(self.name, owner_token, nx=True, ex=self.timeout)
                 if acquired:
                     logger.debug(f"Acquired distributed lock: {self.name}")
-                return acquired
+                    return owner_token
+                return ""
         except Exception as e:
             logger.error(f"Redis lock acquire error: {e}")
-            return False
+            return ""
 
-    def _release_redis(self) -> None:
-        """Release Redis lock."""
+    def _release_redis(self, owner_token: str) -> bool:
+        """Release Redis lock with owner validation via Lua script."""
         try:
-            self._redis.delete(self.name)
+            lua = """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            else
+                return 0
+            end
+            """
+            result = self._redis.eval(lua, 1, self.name, owner_token)
             logger.debug(f"Released distributed lock: {self.name}")
+            return bool(result)
         except Exception as e:
             logger.error(f"Redis lock release error: {e}")
+            return False
 
-    def _acquire_thread(self, blocking: bool) -> bool:
-        """Acquire threading lock."""
+    def _acquire_thread(self, blocking: bool) -> str:
+        """Acquire threading lock. Returns owner token or empty string."""
+        import uuid
         if blocking:
             self._thread_lock.acquire()
-            return True
-        else:
-            return self._thread_lock.acquire(blocking=False)
+            self._owner_token = str(uuid.uuid4())
+            return self._owner_token
+        elif self._thread_lock.acquire(blocking=False):
+            self._owner_token = str(uuid.uuid4())
+            return self._owner_token
+        return ""
 
-    def _release_thread(self) -> None:
-        """Release threading lock."""
+    def _release_thread(self, owner_token: str) -> bool:
+        """Release threading lock with owner validation."""
+        if not owner_token or owner_token != self._owner_token:
+            logger.warning(f"Lock release rejected: invalid owner token for {self.name}")
+            return False
         try:
             self._thread_lock.release()
+            self._owner_token = None
+            return True
         except RuntimeError:
-            pass  # Lock was not held
+            self._owner_token = None
+            return False  # Lock was not held
 
     @contextmanager
     def __call__(self, blocking: bool = False):
         """Context manager for lock acquisition/release."""
-        acquired = self.acquire(blocking=blocking)
-        if not acquired:
+        owner_token = self.acquire(blocking=blocking)
+        if not owner_token:
             raise RuntimeError(f"Failed to acquire lock: {self.name}")
         try:
             yield
         finally:
-            self.release()
+            self.release(owner_token)
 
 
 # Global lock for detection runs
@@ -152,13 +183,14 @@ def run_detection_if_leader(detection_func) -> bool:
         True if detection ran, False if another instance holds the lock.
     """
     lock = get_detection_lock()
-    if lock.acquire(blocking=False):
+    owner_token = lock.acquire(blocking=False)
+    if owner_token:
         try:
             logger.info("Acquired detection lock — running detection")
             detection_func()
             return True
         finally:
-            lock.release()
+            lock.release(owner_token)
     else:
         logger.info("Another instance holds detection lock — skipping")
         return False

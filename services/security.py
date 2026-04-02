@@ -68,9 +68,21 @@ class WatchlistSchema(Schema):
     )
 
 
+class BacktestRunSchema(Schema):
+    """Validation schema for /backtest/run request body."""
+    name = fields.String(load_default=None)
+    start_date = fields.String(required=True)
+    end_date = fields.String(required=True)
+    tickers = fields.List(fields.String(), required=True)
+    capital = fields.Number(load_default=100000)
+    slippage_bps = fields.Number(load_default=5)
+    commission_bps = fields.Number(load_default=10)
+
+
 # Pre-instantiated schemas
 alert_query_schema = AlertQuerySchema()
 watchlist_schema = WatchlistSchema()
+backtest_run_schema = BacktestRunSchema()
 
 
 def validate_query_params(schema: Schema):
@@ -129,7 +141,9 @@ try:
 except ImportError:
     HAS_JWT = False
 
-JWT_SECRET = os.environ.get("JWT_SECRET", os.environ.get("SECRET_KEY", "vigil-dev-fallback"))
+JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable must be set")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 
