@@ -74,9 +74,9 @@ class BacktestRunSchema(Schema):
     start_date = fields.String(required=True)
     end_date = fields.String(required=True)
     tickers = fields.List(fields.String(), required=True)
-    capital = fields.Number(load_default=100000)
-    slippage_bps = fields.Number(load_default=5)
-    commission_bps = fields.Number(load_default=10)
+    capital = fields.Float(load_default=100000)
+    slippage_bps = fields.Float(load_default=5)
+    commission_bps = fields.Float(load_default=10)
 
 
 # Pre-instantiated schemas

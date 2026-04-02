@@ -57,7 +57,7 @@ def create_app() -> Flask:
 
     # SocketIO with restricted CORS
     allowed_origins = get_allowed_origins()
-    socketio = SocketIO(app, cors_allowed_origins=allowed_origins)
+    socketio = SocketIO(app, cors_allowed_origins=allowed_origins, async_mode='gevent')
 
     # Initialize database
     init_db()
