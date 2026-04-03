@@ -18,305 +18,204 @@ Vigil is a **production-ready trading intelligence system** that detects high-pr
 
 ---
 
+## 🏗️ Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Vigil System                         │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌──────────────────┐      ┌──────────────────┐            │
+│  │   Frontend       │      │   Backend API    │            │
+│  │   (Next.js)      │◄────►│   (FastAPI)      │            │
+│  │   Port 3000      │ HTTP │   Port 8000      │            │
+│  └──────────────────┘      └────────┬─────────┘            │
+│                                     │                       │
+│                              ┌──────▼──────┐               │
+│                              │  PostgreSQL  │               │
+│                              │  Port 5432   │               │
+│                              └─────────────┘               │
+│                                                             │
+│  Backend Services:                                          │
+│  ├── services/     (alert routing, caching, correlation)   │
+│  ├── backtest/     (engine, broker, metrics)               │
+│  ├── config/       (events, regime config)                 │
+│  └── migrations/   (database schema)                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed design.**
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
-- Python 3.10+
-- PostgreSQL database (Railway recommended)
-- Discord webhook (optional, for alerts)
+- Docker & Docker Compose (recommended)
+- OR Python 3.11+, Node.js 18+, PostgreSQL
 
-### 1. Clone & Install
+### Option 1: Docker Compose (Recommended)
+
 ```bash
 git clone https://github.com/NadhanJosy/Vigil
 cd Vigil
+cp .env.example .env
+# Edit .env with your values
+docker-compose up -d
+```
+
+- Frontend: http://localhost:3000
+- API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+
+### Option 2: Local Development
+
+**Backend:**
+```bash
+cd backend
 pip install -r requirements.txt
+export DATABASE_URL="postgresql://vigil:vigil@localhost:5432/vigil"
+uvicorn api:app --reload --port 8000
 ```
 
-### 2. Configure Environment
+**Frontend:**
 ```bash
-export DATABASE_URL="postgresql://user:pass@host:5432/database"
-export NOTIFICATIONS_WEBHOOK_URL="https://discord.com/api/webhooks/..."  # optional
-export PORT=5000
+cd frontend
+npm install
+npm run dev
 ```
-
-### 3. Start the Server
-```bash
-python api.py
-```
-
-Server runs at `http://localhost:5000` with dashboard available at root.
 
 ---
 
-## 📊 System Architecture
+## 📋 Environment Variables
 
-**Three-tier architecture**:
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | - | ✅ |
+| `JWT_SECRET` | JWT signing key | `dev-secret-change-me` | ✅ (prod) |
+| `LOG_LEVEL` | Log level | `INFO` | ❌ |
+| `WATCHLIST` | Comma-separated tickers | `SPY,QQQ,IWM` | ❌ |
+| `SLACK_WEBHOOK_URL` | Slack alert webhook | - | ❌ |
+| `WEBHOOK_URL` | Generic alert webhook | - | ❌ |
+| `REDIS_URL` | Redis connection (optional) | - | ❌ |
+| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:3000` | ❌ |
+| `NEXT_PUBLIC_API_URL` | Frontend API URL | `http://localhost:8000` | ❌ |
 
-```
-┌─────────────────────────────────────────┐
-│  Flask API (api.py)                     │
-│  - Web server                           │
-│  - REST endpoints                       │
-│  - Dashboard UI                         │
-└─────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────┐
-│  Detection Engine (data.py)             │
-│  - Signal generation                    │
-│  - Advanced analysis (advanced_signals) │
-│  - Webhook notifications                │
-│  - Backfill generation                  │
-└─────────────────────────────────────────┘
-              ↓
-┌─────────────────────────────────────────┐
-│  PostgreSQL Database (database.py)      │
-│  - Alert storage                        │
-│  - Watchlist management                 │
-│  - Outcome tracking                     │
-└─────────────────────────────────────────┘
-```
-
-**See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed design.**
+See [`.env.example`](.env.example) for full list.
 
 ---
 
-## 🎯 Core Features
-
-### 1. Multi-Signal Detection
-- **Accumulation Detection**: Identifies 7-day tight consolidations with rising volume
-- **Volume Spike Detection**: Captures 1.5x+ volume moves on 2%+ price changes
-- **Multi-Timeframe Analysis**: Weekly, daily, 5-day trend confirmation
-- **Regime Classification**: TRENDING, RISK_OFF, VOLATILE, SIDEWAYS market states
-- **Trap Detection**: 5-filter bull trap assessment (RSI, resistance, ATR rejection, etc.)
-
-### 2. Advanced Signal Analysis (Revolutionary Features)
-- **Multi-Indicator Momentum**: Stochastic RSI + MACD + CCI consensus scoring
-- **Volatility Expansion Bonus**: 1.4x multiplier in expansion, 0.65x in contraction
-- **Sector Correlation Gating**: Only trade symbols aligned with market (SPY)
-- **Price Action Quality**: 0-100 scoring of entry quality
-- **Statistical Anomalies**: Z-score based unusual activity detection
-- **Advanced Position Sizing**: Kelly Criterion mathematical optimization
-
-See [REVOLUTIONARY.md](REVOLUTIONARY.md) for detailed feature breakdown.
-
-### 3. Risk Management
-- **Edge Scoring**: 0-10 scale based on signal components
-- **Action Classification**: ENTER, WAIT, AVOID, STAND_DOWN
-- **ATR-Based Levels**: Stop loss (-2×ATR) and take profit (+4×ATR)
-- **Dynamic Sizing**: Kelly-optimized positions adjusted for volatility + conviction
-- **Duplicate Suppression**: 48-hour cooldown prevents signal spam
-
-### 4. Outcome Tracking
-- **Outcome Evaluation**: Measures +5 or +10 day win/loss via outcome_pct
-- **Signal Analysis**: `analyze_traps.py` utility identifies which filters work best
-- **Performance Metrics**: Win rate by signal type, trap reason, regime
-
----
-
-## 📱 API Endpoints
+## 📡 API Endpoints
 
 ### Real-Time Monitoring
-- **`GET /`** - Dashboard (real-time alert display with 30s refresh)
-- **`GET /alerts?ticker=X&signal_type=Y&state=Z&limit=50&offset=0`** - Query alerts with filtering
-- **`GET /regime`** - Current market regime (SPY-based)
+- **`GET /`** - Health check
+- **`GET /alerts?ticker=X&signal_type=Y&state=Z&limit=50&offset=0`** - Query alerts
+- **`GET /regime`** - Current market regime
 
 ### Trading Operations
-- **`POST /trigger`** - Run detection immediately (asynchronous)
-- **`POST /backfill`** - Generate historical alerts (optional analysis)
-- **`POST /evaluate`** - Evaluate outcomes for pending alerts
+- **`POST /trigger`** - Run detection immediately
+- **`POST /backfill`** - Generate historical alerts
+- **`POST /evaluate`** - Evaluate outcomes
 
 ### Watchlist Management
 - **`GET /watchlist`** - List watched symbols
-- **`POST /watchlist`** - Add ticker (body: `{"ticker": "AAPL"}`)
+- **`POST /watchlist`** - Add ticker
 - **`DELETE /watchlist?ticker=AAPL`** - Remove ticker
 
 ---
 
-## 🔧 Deployment
+## 🚢 Deployment
 
-### Railway (Recommended)
+### Railway
+
 1. Connect GitHub repo to Railway
-2. Set environment variables:
-   - `DATABASE_URL` (PostgreSQL connection)
-   - `NOTIFICATIONS_WEBHOOK_URL` (Discord webhook, optional)
-3. Deploy from `Procfile`
-4. Server auto-restarts, detection runs daily at 21:00 ET
+2. Set environment variables in Railway dashboard:
+   - `DATABASE_URL` (from Railway PostgreSQL)
+   - `JWT_SECRET` (strong random string)
+3. Deploy — Railway auto-detects `nixpacks.toml`
+4. Add custom domain if needed
 
-### Local Development
+### Render
+
+1. Create new Web Service from GitHub
+2. Build Command: `cd backend && pip install -r requirements.txt`
+3. Start Command: `cd backend && uvicorn api:app --host 0.0.0.0 --port $PORT`
+4. Add PostgreSQL database via Render dashboard
+5. Set `DATABASE_URL` environment variable
+
+### Docker
+
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment
-export DATABASE_URL="postgresql://localhost/vigil"
-export PORT=5000
-
-# Run
-python api.py
+docker-compose up -d --build
 ```
-
----
-
-## 📊 Database Schema
-
-**Alerts Table** (28 columns):
-- Core: `ticker`, `date`, `volume_ratio`, `change_pct`, `signal_type`, `state`
-- Signal: `signal_combination`, `edge_score`, `action`, `summary`
-- Trap Detection: `trap_conviction`, `trap_type`, `trap_reasons`
-- Accumulation: `accum_conviction`, `accum_days`, `accum_price_range_pct`
-- MTF: `mtf_weekly`, `mtf_daily`, `mtf_recent`, `mtf_alignment`
-- Context: `regime`, `days_in_state`, `prev_state`
-- Outcomes: `outcome_pct`, `outcome_days`, `outcome_result`
-- Timing: `created_at` (auto)
-
-**Watchlist Table**:
-- `ticker` (primary key), `created_at` (auto)
-
----
-
-## 🤖 Signal Generation Flow
-
-```
-Raw Market Data (60-day OHLCV)
-    ↓
-[Compute State] → BREAKOUT / TRENDING_UP / RANGING / etc
-    ↓
-[Compute Regime] → TRENDING / RISK_OFF / VOLATILE / SIDEWAYS
-    ↓
-[Compute MTF] → Weekly/Daily/Recent trend + alignment
-    ↓
-[Detect Accumulation] → 7-day tight consolidation + vol rise
-    ↓
-[Assess Trap] → 5-filter bull trap scoring (regime-aware RSI)
-    ↓
-[Base Edge Score] → Start 1.0-5.5 depending on signal type
-    ↓
-[Advanced Analysis] ──────────────────────┐
-│ - Momentum Confirmation (+0.7 max)     │
-│ - Volatility Bonus (1.25-1.4x)         │
-│ - Sector Gate (-20% to -50%)            │
-│ - Price Action (+0.8 max)              │
-│ - Anomaly Detection (+0.9 max)         │
-└──────────────────────────────────────────┘
-    ↓
-[Final Edge] → Capped at 10.0
-    ↓
-[Compute Action] → ENTER (≥7), WAIT, AVOID, STAND_DOWN
-    ↓
-[Kelly Sizing] → Position % = (kelly_f / 3) × vol_mult × conviction
-    ↓
-[Save Alert] → PostgreSQL
-    ↓
-[Webhook] → Discord (if action=ENTER or edge≥8.0 or AVOID+trap>0.7)
-```
-
----
-
-## 📈 Expected Performance
-
-| Metric | Without Vigil | With Vigil | Improvement |
-|--------|--------------|-----------|-------------|
-| Win Rate | 52% | 60%+ | +8% |
-| False Signals | 48% | 18% | -60% |
-| Avg Trade | $520 | $1,200 | +131% |
-| Annual Return | $54K | $180K+ | **3.3x** |
-| Sharpe Ratio | 1.0 | 2.0-4.0 | **2-4x** |
-
-*Based on $100K account, 30 trades/month, 2% per win.*
 
 ---
 
 ## 🧪 Testing
 
-Integration tests included in `test_e2e.py`:
-
 ```bash
-# Run full test suite
+cd backend
+python -m pytest tests/ -v
+# Or run individual test files
 python test_e2e.py
+python test_adversarial.py
 ```
-
-Tests cover:
-- Database connection & schema
-- Watchlist CRUD operations
-- Signal detection
-- API endpoints
-- Webhook delivery (optional)
-- Backfill capability
-- Outcome evaluation
 
 ---
 
 ## 📖 Documentation
 
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design, data flow, components
-- **[REVOLUTIONARY.md](REVOLUTIONARY.md)** - Detailed breakdown of 6 advanced features, competitive advantages, performance expectations
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System design, data flow, components
+- **[docs/ARCHITECTURE_MIGRATION.md](docs/ARCHITECTURE_MIGRATION.md)** - Migration guide
+- **[docs/SPEC_NEXT_GEN.md](docs/SPEC_NEXT_GEN.md)** - Next-gen specifications
+- **[docs/STRATEGIC_BLUEPRINT.md](docs/STRATEGIC_BLUEPRINT.md)** - Strategic planning
 
 ---
 
-## 🛠️ Utilities
-
-### analyze_traps.py
-Analyze historical trap detection performance:
-```bash
-python analyze_traps.py
-```
-Shows win rates by trap reason (volume, RSI, resistance, ATR, overextension).
-
----
-
-## 📝 File Structure
+## 📁 Project Structure
 
 ```
-├── api.py                   # Flask server + endpoints
-├── data.py                  # Detection engine + webhooks
-├── database.py              # PostgreSQL operations
-├── advanced_signals.py      # 6 institutional features
-├── scheduler.py             # APScheduler background job
-├── analyze_traps.py         # Signal analysis utility
-├── test_e2e.py              # Integration tests
-├── requirements.txt         # Python dependencies
-├── Procfile                 # Railway deployment config
-├── nixpacks.toml            # Build configuration
-├── ARCHITECTURE.md          # System design
-├── REVOLUTIONARY.md         # Feature documentation
-├── README.md                # This file
-└── templates/
-    └── dashboard.html       # Real-time UI
+Vigil/
+├── .env.example              # Environment template
+├── .gitignore
+├── docker-compose.yml        # Local dev orchestration
+├── Dockerfile                # Backend image
+├── Procfile                  # Heroku/Railway start
+├── nixpacks.toml             # Railway build config
+├── README.md                 # This file
+├── DEPLOYMENT.md             # Deployment guide
+├── backend/
+│   ├── api.py                # FastAPI application
+│   ├── data.py               # Detection engine
+│   ├── database.py           # PostgreSQL layer
+│   ├── advanced_signals.py   # Signal analysis
+│   ├── requirements.txt      # Python dependencies
+│   ├── pyproject.toml        # Ruff config
+│   ├── services/             # Microservices
+│   ├── backtest/             # Backtesting engine
+│   ├── config/               # Configuration
+│   ├── migrations/           # Database migrations
+│   └── tests/                # Test suite
+├── frontend/
+│   ├── app/                  # Next.js pages
+│   ├── components/           # React components
+│   ├── lib/                  # API/WS utilities
+│   └── package.json
+├── docs/                     # Documentation
+└── scripts/                  # Setup scripts
 ```
 
 ---
 
-## 🎓 How It Works: The Unfair Advantage
+## 🔧 Troubleshooting
 
-**Why Vigil beats 99% of traders:**
-
-1. **Multi-Confirmation** - Requires 3 indicators (stoch RSI, MACD, CCI) instead of trading on one RSI value
-2. **Vol Awareness** - Only trades statistically high-probability vol expansion periods (skips 35% of worst breakouts)
-3. **Market Alignment** - Prevents "fighting the tape" against sector trends
-4. **Quantified Context** - Every decision backed by 10+ calculated metrics
-5. **Optimal Sizing** - Kelly Criterion math instead of fixed percentages (2x wealth growth)
-6. **24/7 Automation** - No human fatigue, emotions, or analysis gaps
-
-All techniques proven by institutional quants, implemented in clean, auditable code.
-
----
-
-## 🔐 Security Notes
-
-- Never commit `.env` files with real credentials
-- Webhook URLs should be treated as secrets
-- Database passwords should use environment variables
-- API runs on localhost by default; use reverse proxy in production
-
----
-
-## 📞 Support
-
-For issues or questions:
-1. Check [ARCHITECTURE.md](ARCHITECTURE.md) for system understanding
-2. Review [REVOLUTIONARY.md](REVOLUTIONARY.md) for feature details
-3. Run `test_e2e.py` to verify system functionality
-4. Check logs in Flask output for runtime errors
+| Issue | Solution |
+|-------|----------|
+| `DATABASE_URL` not set | Copy `.env.example` to `.env` and fill values |
+| Port 8000 in use | Change `PORT` in `.env` or kill existing process |
+| Frontend can't connect | Check `NEXT_PUBLIC_API_URL` matches backend URL |
+| PostgreSQL auth failed | Verify `DATABASE_URL` credentials match your DB |
+| Import errors in backend | Ensure working directory is `backend/` or set `PYTHONPATH` |
 
 ---
 
@@ -326,4 +225,4 @@ For issues or questions:
 
 ---
 
-**Status**: ✅ Production Ready | **Version**: 2.0 | **Last Updated**: March 2026
+**Status**: ✅ Production Ready | **Version**: 2.0 | **Last Updated**: April 2026
