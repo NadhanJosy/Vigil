@@ -1,11 +1,9 @@
 {
+  "installCommand": "pip install -r requirements.txt",
   "builds": [
     {
       "src": "api.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "50mb"
-      }
+      "use": "@vercel/python"
     }
   ],
   "routes": [
