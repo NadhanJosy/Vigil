@@ -52,9 +52,10 @@ class AlertRouter:
     def _record_delivery(
         self, alert_id, channel: str, status: str, error: str = None
     ) -> None:
-        try:
-            from database import get_conn, _pool
+        from database import get_conn, _pool
 
+        conn = None
+        try:
             conn = get_conn()
             with conn.cursor() as cur:
                 cur.execute(
@@ -62,12 +63,17 @@ class AlertRouter:
                     (alert_id, channel, status, error),
                 )
             conn.commit()
-            if _pool:
-                _pool.putconn(conn)
-            else:
-                conn.close()
         except Exception as e:
             logging.error(f"Failed to record delivery: {e}")
+        finally:
+            if conn is not None:
+                try:
+                    if _pool:
+                        _pool.putconn(conn)
+                    else:
+                        conn.close()
+                except Exception:
+                    pass
 
 
 alert_router = AlertRouter()

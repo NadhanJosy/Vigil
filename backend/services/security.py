@@ -131,9 +131,7 @@ try:
 except ImportError:
     HAS_JWT = False
 
-JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
-if not JWT_SECRET:
-    raise RuntimeError("JWT_SECRET environment variable must be set")
+JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY") or "dev-secret-do-not-use-in-production"
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 

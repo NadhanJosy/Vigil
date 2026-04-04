@@ -219,6 +219,68 @@ Vigil/
 
 ---
 
+## Decision Intelligence Platform
+
+Vigil includes an institutional-grade decision intelligence layer that provides:
+
+### Signal Scoring & Confidence
+- Multi-factor weighted scoring (0-100) with deterministic calculation
+- Confidence grades: Very Low (0-20), Low (21-40), Moderate (41-60), High (61-80), Very High (81-100)
+- Factor breakdown with individual weight impacts
+
+### Structured Explanations
+- Machine-parseable rationales for every signal
+- Primary trigger identification
+- Contributing factor attribution with weighted contributions
+- Regime context integration
+
+### Outcome Tracking
+- Post-signal state machine (pending → active → resolved)
+- Peak drawdown monitoring
+- Time-to-resolution tracking
+- Realized return percentage calculation
+
+### Portfolio Simulation
+- Walk-forward simulation with deterministic results
+- Portfolio-level metrics: Sharpe, Sortino, Calmar ratios
+- Equity curve visualization
+- Risk-adjusted performance attribution
+
+### API Endpoints
+All DI endpoints are under `/api/di/`:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/di/signals` | GET | Paginated signal list with filtering |
+| `/api/di/signals/{id}` | GET | Full signal detail with explanation |
+| `/api/di/signals/{id}/explanation` | GET | Structured explanation |
+| `/api/di/outcomes` | GET | Outcome list with filtering |
+| `/api/di/outcomes/{id}` | GET | Single outcome detail |
+| `/api/di/outcomes/{id}/resolve` | POST | Manual outcome resolution |
+| `/api/di/regimes/current` | GET | Current regime state |
+| `/api/di/regimes/history` | GET | Historical regime states |
+| `/api/di/simulations/run` | POST | Run portfolio simulation |
+| `/api/di/simulations` | GET | Simulation history |
+| `/api/di/simulations/{id}` | GET | Single simulation result |
+| `/api/di/weights/active` | GET | Current active scoring weights |
+| `/api/di/weights/history` | GET | Weight calibration history |
+| `/api/di/portfolio/exposure` | GET | Current portfolio exposure |
+| `/api/di/health` | GET | System health check |
+
+### Database Migrations
+- `003_performance_indexes.sql` — 8 composite indexes for DI query optimization
+- `004_simulation_results.sql` — Portfolio simulation results table
+- `005_weight_history.sql` — Adaptive weight calibration history
+
+### Frontend Pages
+- `/signals` — Signal intelligence dashboard with regime indicator
+- `/signals/{id}` — Signal detail with factor breakdown and outcome tracking
+- `/simulations` — Portfolio simulation runner and results viewer
+
+For full architectural details, see [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md).
+
+---
+
 ## 📄 Legal
 
 **Proprietary and Confidential.** This software is for private use only. Unauthorized copying, distribution, or modification is strictly prohibited.

@@ -1,42 +1,123 @@
 'use client';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Alert, SystemMetrics } from '@/lib/types';
-import { fetchAlerts, fetchSystemMetrics } from '@/lib/api';
+import { fetchAlerts, fetchSystemMetrics, fetchPollingStatus } from '@/lib/api';
 import SignalCard from './SignalCard';
 import AlertCard from './AlertCard';
 import MetricsPanel from './MetricsPanel';
 
-const REFRESH_INTERVAL_MS = 30000; // 30 seconds
+// Configurable polling interval (default 15s, overridable via env)
+const ALERT_POLL_INTERVAL_MS = parseInt(
+  process.env.NEXT_PUBLIC_POLL_INTERVAL_MS || '15000',
+  10
+);
+const METRICS_POLL_INTERVAL_MS = 60000; // Metrics every 60s (less frequent)
 
 export default function Dashboard() {
   const [signals, setSignals] = useState<Alert[]>([]);
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastAlertTimestamp, setLastAlertTimestamp] = useState<string | null>(null);
+  const [isPollingMode, setIsPollingMode] = useState(true);
 
-  const loadData = useCallback(async () => {
+  // Use ref to track latest timestamp without causing re-renders in interval
+  const lastTimestampRef = useRef<string | null>(null);
+
+  // Use refs for callbacks to prevent useEffect re-creation on every render
+  const loadAlertsRef = useRef<((incremental: boolean) => Promise<void>) | null>(null);
+  const loadMetricsRef = useRef<(() => Promise<void>) | null>(null);
+  const loadInitialDataRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Stable loadAlerts function
+  const loadAlerts = useCallback(async (incremental = false) => {
+    try {
+      const since = incremental && lastTimestampRef.current ? lastTimestampRef.current : undefined;
+      const alertsData = await fetchAlerts({
+        limit: 50,
+        ...(since ? { since } : {}),
+      });
+
+      if (incremental && alertsData.length > 0) {
+        // Merge new alerts with existing, avoiding duplicates by ID
+        setSignals(prev => {
+          const existingIds = new Set(prev.map(a => a.id));
+          const newAlerts = alertsData.filter(a => !existingIds.has(a.id));
+          // Prepend new alerts (newest first)
+          return [...newAlerts, ...prev].slice(0, 200); // Cap at 200
+        });
+      } else if (!incremental) {
+        setSignals(alertsData);
+      }
+
+      // Update last timestamp ref
+      if (alertsData.length > 0) {
+        const newest = alertsData[0].created_at;
+        lastTimestampRef.current = newest;
+        setLastAlertTimestamp(newest);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load alerts';
+      setError(message);
+    }
+  }, []);
+
+  const loadMetrics = useCallback(async () => {
+    try {
+      const metricsData = await fetchSystemMetrics();
+      setMetrics(metricsData);
+    } catch (err) {
+      // Non-fatal — metrics are optional
+      console.warn('Failed to load metrics:', err);
+    }
+  }, []);
+
+  const loadInitialData = useCallback(async () => {
     try {
       setError(null);
-      const [alertsData, metricsData] = await Promise.all([
-        fetchAlerts({ limit: 50 }),
-        fetchSystemMetrics(),
+      setIsLoading(true);
+      // Check polling status
+      try {
+        const status = await fetchPollingStatus();
+        setIsPollingMode(status.polling_mode || !status.realtime_enabled);
+      } catch {
+        // If status endpoint doesn't exist yet, default to polling mode
+        setIsPollingMode(true);
+      }
+
+      // Full load on initial
+      await Promise.all([
+        loadAlerts(false),
+        loadMetrics(),
       ]);
-      setSignals(alertsData);
-      setMetrics(metricsData);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load dashboard data';
       setError(message);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [loadAlerts, loadMetrics]);
+
+  // Keep refs in sync
+  loadAlertsRef.current = loadAlerts;
+  loadMetricsRef.current = loadMetrics;
+  loadInitialDataRef.current = loadInitialData;
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, REFRESH_INTERVAL_MS);
-    return () => clearInterval(interval);
-  }, [loadData]);
+    // Run initial load
+    loadInitialDataRef.current?.();
+
+    // Single shared polling interval — no stale closures via refs
+    const interval = setInterval(() => {
+      loadAlertsRef.current?.(true);
+      loadMetricsRef.current?.();
+    }, ALERT_POLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []); // Empty deps — refs prevent stale closures
 
   if (isLoading) {
     return (
@@ -63,7 +144,7 @@ export default function Dashboard() {
           <h2 className="text-lg font-bold text-rose-400 mb-2">Connection Error</h2>
           <p className="text-sm text-zinc-400">{error}</p>
           <button
-            onClick={loadData}
+            onClick={loadInitialData}
             className="mt-4 px-4 py-2 rounded-md bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 transition-colors text-sm font-medium"
           >
             Retry
@@ -85,8 +166,22 @@ export default function Dashboard() {
             <h1 className="text-xl font-black text-white tracking-tight">VIGIL</h1>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-zinc-500 font-mono">LIVE</span>
+            {isPollingMode ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
+                <span className="text-xs text-zinc-500 font-mono">POLLING</span>
+              </>
+            ) : (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-xs text-zinc-500 font-mono">LIVE</span>
+              </>
+            )}
+            {lastAlertTimestamp && (
+              <span className="text-xs text-zinc-600 font-mono hidden sm:inline">
+                Updated: {new Date(lastAlertTimestamp).toLocaleTimeString()}
+              </span>
+            )}
           </div>
         </div>
       </header>

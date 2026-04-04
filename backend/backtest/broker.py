@@ -70,8 +70,17 @@ class SimulatedBroker:
 
     @property
     def equity(self) -> float:
-        """Current equity (cash + unrealized PnL)."""
-        return self.cash  # Simplified: only track cash equity
+        """Current equity (cash + unrealized PnL of open positions)."""
+        unrealized_pnl = sum(
+            pos.quantity * (self._get_mark_price(pos) - pos.entry_price)
+            for pos in self.positions.values()
+            if pos.quantity > 0
+        )
+        return self.cash + unrealized_pnl
+
+    def _get_mark_price(self, pos: Position) -> float:
+        """Get the current mark price for a position. Defaults to entry price."""
+        return getattr(pos, "current_price", pos.entry_price)
 
     def buy(self, ticker: str, price: float, quantity: float, high: float, low: float) -> Trade | None:
         """

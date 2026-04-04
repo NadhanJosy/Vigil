@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Response
-from database import get_conn
+from database import get_pool
 from services.observability import anomaly_detector, metrics, PROMETHEUS_AVAILABLE, REGISTRY
 
 health_router = APIRouter(prefix="/health", tags=["System"])
@@ -24,55 +24,55 @@ _START_TIME = time.time()
 _VERSION = "2.0.0"
 
 
-def _get_last_detection_time() -> Any | None:
+async def _get_last_detection_time() -> Any | None:
     """Fetch the most recent detection run timestamp from the database."""
-    conn = None
     try:
-        conn = get_conn()
-        with conn.cursor() as cursor:
-            cursor.execute(
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
                 "SELECT MAX(created_at) FROM alerts WHERE created_at IS NOT NULL"
             )
-            row = cursor.fetchone()
-            if row and row[0]:
-                return row[0]
+            if row and row["max"]:
+                return row["max"]
     except Exception:
         pass
-    finally:
-        if conn is not None:
-            try:
-                from database import _pool
-                if _pool:
-                    _pool.putconn(conn)
-                else:
-                    conn.close()
-            except Exception:
-                pass
     return None
 
 
-def _check_database() -> dict[str, Any]:
-    """Check database connectivity and measure latency."""
+async def _check_database() -> dict[str, Any]:
+    """Check database connectivity and measure latency using asyncpg pool."""
     start = time.time()
     try:
-        conn = get_conn()
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
+        pool = await get_pool()
+        # Verify pool is healthy
+        pool_size = pool.get_size()
+        idle_size = pool.get_idle_size()
+        # Execute a test query to confirm connectivity
+        await pool.fetchval("SELECT 1")
         latency_ms = round((time.time() - start) * 1000, 2)
-        from database import _pool
-        if _pool:
-            _pool.putconn(conn)
-        else:
-            conn.close()
-        return {"status": "up", "latency_ms": latency_ms}
+        return {
+            "status": "up",
+            "latency_ms": latency_ms,
+            "pool_size": pool_size,
+            "pool_idle": idle_size,
+        }
     except Exception as e:
         return {"status": "down", "latency_ms": -1, "error": str(e)}
 
 
 def _check_scheduler() -> dict[str, Any]:
-    """Check scheduler status."""
+    """Check scheduler status.
+
+    Uses lazy import inside the function to avoid circular dependency
+    with api.py. If the import fails (e.g., during unit tests or cold
+    starts), returns a safe 'unknown' status instead of crashing.
+    """
     try:
-        from api import scheduler
+        # Lazy import to break circular dependency with api.py
+        import api  # noqa: F401
+        scheduler = getattr(api, "scheduler", None)
+        if scheduler is None:
+            return {"status": "unknown", "note": "scheduler not available"}
         running = scheduler.running
         jobs = scheduler.get_jobs()
         next_run = None
@@ -87,6 +87,8 @@ def _check_scheduler() -> dict[str, Any]:
             "next_run": next_run,
             "job_count": len(jobs),
         }
+    except ImportError:
+        return {"status": "unknown", "note": "api module not available"}
     except Exception as e:
         return {"status": "stopped", "error": str(e)}
 
@@ -164,7 +166,7 @@ async def health_check():
     Comprehensive health check.
     Returns structured health response with database, scheduler, memory, and disk checks.
     """
-    db_check = _check_database()
+    db_check = await _check_database()
     scheduler_check = _check_scheduler()
     memory_check = _check_memory()
     disk_check = _check_disk()
@@ -194,23 +196,17 @@ async def readiness_check():
     """
     checks: dict[str, str] = {}
 
-    # Database check
+    # Database check using asyncpg
     try:
-        conn = get_conn()
-        with conn.cursor() as cursor:
-            cursor.execute("SELECT 1")
+        pool = await get_pool()
+        await pool.fetchval("SELECT 1")
         checks["database"] = "healthy"
-        from database import _pool
-        if _pool:
-            _pool.putconn(conn)
-        else:
-            conn.close()
     except Exception as e:
         checks["database"] = f"unhealthy: {str(e)}"
 
     # Detection freshness check (last run within 25 hours)
     try:
-        last_run = _get_last_detection_time()
+        last_run = await _get_last_detection_time()
         if last_run:
             # Handle both aware and naive datetimes
             last_dt = last_run

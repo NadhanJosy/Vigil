@@ -22,7 +22,7 @@ class CorrelationResult:
     matrix: list[list[float]]  # 2D list for JSON serialization
     period: str  # e.g. "60d"
     method: str  # "pearson", "spearman"
-    stability_scores: dict[str, float] = field(default_factory=dict)
+    stability_scores: dict[str, Optional[float]] = field(default_factory=dict)
     computed_at: str = ""
 
 
@@ -90,7 +90,7 @@ class CorrelationEngine:
         matrix = corr_matrix.values.tolist()
 
         # Compute stability scores (rolling correlation std)
-        stability = {}
+        stability: dict[str, Optional[float]] = {}
         for i, t1 in enumerate(tickers):
             for j, t2 in enumerate(tickers):
                 if i < j:
@@ -102,9 +102,15 @@ class CorrelationEngine:
                         if pairwise is not None and len(pairwise) > 0:
                             stability[key] = round(float(pairwise.std()), 4)
                         else:
-                            stability[key] = 0.0
+                            logger.warning(
+                                "Insufficient rolling data for stability score: %s", key
+                            )
+                            stability[key] = None
                     else:
-                        stability[key] = 0.0
+                        logger.warning(
+                            "No rolling correlation data for stability score: %s", key
+                        )
+                        stability[key] = None
 
         return CorrelationResult(
             tickers=tickers,

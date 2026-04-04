@@ -71,7 +71,11 @@ def compute_metrics(equity_curve: list[dict[str, Any]], trades: list[Trade]) -> 
         # Profit factor
         total_wins = sum(wins) if wins else 0.0
         total_losses = abs(sum(losses)) if losses else 0.0
-        metrics.profit_factor = round(total_wins / total_losses, 2) if total_losses > 0 else round(total_wins, 2)
+        if total_losses == 0:
+            # No losses: profit factor is infinite if there are wins, else 0
+            metrics.profit_factor = float('inf') if total_wins > 0 else 0.0
+        else:
+            metrics.profit_factor = round(total_wins / total_losses, 2)
 
         # Total return
         metrics.total_return_pct = round(sum(pnls), 2)

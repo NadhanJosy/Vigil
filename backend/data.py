@@ -5,7 +5,9 @@ import logging
 import json
 import os
 import httpx
+import requests
 from datetime import timedelta
+from urllib3.util import Retry
 from database import (save_alert, init_db, get_recent_alert_for_ticker,
                       get_watchlist, get_latest_regime, get_recent_alert_by_action)
 from services.regime_engine import compute_regime_adaptive
@@ -400,6 +402,31 @@ def compute_summary(combination, days_in_state, volume_ratio,
 
 # ─── DETECTION ───────────────────────────────────────────────────────────────
 
+def _run_async(coro):
+    """
+    Safely run an async coroutine from a synchronous context.
+
+    FIX 2: Event loop collision prevention.
+    - If an event loop is already running, uses asyncio.ensure_future()
+      to schedule the task without blocking.
+    - If no loop is running, uses asyncio.run() (Python 3.7+).
+    - If no loop exists, creates a new one and runs the coroutine.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # FIX 2: We're inside an async context — schedule the task without blocking
+            asyncio.ensure_future(coro)
+        else:
+            # FIX 2: Loop exists but not running — use asyncio.run() for safety
+            asyncio.run(coro)
+    except RuntimeError:
+        # FIX 2: No event loop exists — create a new one (top-level sync entry point)
+        try:
+            asyncio.run(coro)
+        except Exception as e:
+            logger.error(f"_run_async failed: {e}")
+
 async def notify_webhook(alert_data):
     """Sends a non-blocking notification to a Discord/Slack webhook."""
     url = os.environ.get("NOTIFICATIONS_WEBHOOK_URL")
@@ -464,17 +491,50 @@ async def notify_webhook(alert_data):
             await client.post(url, json=payload, timeout=10.0)
     except Exception as e:
         logger.error(f"Webhook error: {e}")
+# yfinance session with explicit timeout and retry configuration
+_yf_session = None
+
+
+def _get_yf_session() -> requests.Session:
+    """Get or create a requests Session with timeout and retry logic for yfinance."""
+    global _yf_session
+    if _yf_session is None:
+        _yf_session = requests.Session()
+        retry_strategy = Retry(
+            total=2,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        _yf_session.mount("https://", adapter)
+        _yf_session.mount("http://", adapter)
+    return _yf_session
+
+
+def _yf_ticker_history(ticker: str, period: str):
+    """Fetch ticker history with explicit timeout and retry protection."""
+    try:
+        t = yf.Ticker(ticker)
+        t.session = _get_yf_session()
+        return t.history(period=period, timeout=30)
+    except Exception as e:
+        logger.warning(f"yfinance timeout/retry failed for {ticker}: {e}")
+        raise
+
+
 def run_detection():
     logger.info("Starting market detection run...")
 
     # Check for Regime Shift
     try:
-        spy_history = yf.Ticker("SPY").history(period=LOOKBACK_PERIOD)
+        spy_history = _yf_ticker_history("SPY", LOOKBACK_PERIOD)
         regime = compute_regime_adaptive(spy_history)
         last_regime = get_latest_regime()
         if last_regime and last_regime != regime:
             logger.info(f"Regime Shift: {last_regime} -> {regime}")
-            asyncio.run(notify_webhook({"old_regime": last_regime, "new_regime": regime}))
+            _run_async(notify_webhook({"old_regime": last_regime, "new_regime": regime}))
     except Exception as e:
         logger.error(f"Regime error: {e}")
         regime = "UNKNOWN"
@@ -484,9 +544,10 @@ def run_detection():
     unique_sectors = list(set(SECTOR_MAP.values()))
     for s in unique_sectors:
         try:
-            s_hist = yf.Ticker(s).history(period="60d")
+            s_hist = _yf_ticker_history(s, "60d")
             sector_regimes[s] = compute_regime_adaptive(s_hist)
-        except:
+        except Exception as e:
+            logger.warning(f"Failed to fetch sector data for {s}: {e}")
             sector_regimes[s] = "UNKNOWN"
 
     watchlist = get_watchlist()
@@ -495,7 +556,15 @@ def run_detection():
     logger.info(f"Market Regime: {regime}")
 
     # OPTIMIZATION: Bulk download all tickers at once to save IO time
-    all_data = yf.download(tickers, period=LOOKBACK_PERIOD, group_by='ticker', threads=True)
+    # Configure session with timeout for bulk download
+    try:
+        all_data = yf.download(
+            tickers, period=LOOKBACK_PERIOD, group_by='ticker',
+            threads=True, timeout=30
+        )
+    except TypeError:
+        # Older yfinance versions may not support timeout parameter
+        all_data = yf.download(tickers, period=LOOKBACK_PERIOD, group_by='ticker', threads=True)
 
     for ticker_symbol in tickers:
         try:
@@ -603,12 +672,12 @@ def run_detection():
                 )
                 logger.info(f"Signal: {ticker_symbol} — {date} — {combo} — edge {edge} — {action}")
 
-                # WebSocket push
+                # WebSocket push (via event bus instead of Flask current_app)
                 try:
-                    from flask import current_app
-                    current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "ACCUMULATION_DETECTED",
-                                            "edge_score": edge, "action": action, "regime": regime,
-                                            "mtf_alignment": mtf_alignment, "summary": summary})
+                    from services.event_bus import event_bus
+                    event_bus.publish_sync("alert", {"ticker": ticker_symbol, "signal_type": "ACCUMULATION_DETECTED",
+                                                "edge_score": edge, "action": action, "regime": regime,
+                                                "mtf_alignment": mtf_alignment, "summary": summary})
                 except Exception:
                     pass
                 # Alert routing
@@ -626,7 +695,7 @@ def run_detection():
                 # Notification logic: Enter signals or Elite setups
                 should_notify = (action == "ENTER") or (edge >= 8.0)
                 if should_notify:
-                    asyncio.run(notify_webhook({
+                    _run_async(notify_webhook({
                         "ticker": ticker_symbol,
                         "combo": combo,
                         "action": action,
@@ -699,12 +768,12 @@ def run_detection():
                         days_in_state=days_in, prev_state=prev_state,
                         regime=regime, action=action, summary=summary
                     )
-                    # WebSocket push
+                    # WebSocket push (via event bus instead of Flask current_app)
                     try:
-                        from flask import current_app
-                        current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_UP",
-                                                "edge_score": edge, "action": action, "regime": regime,
-                                                "mtf_alignment": mtf_alignment, "summary": summary})
+                        from services.event_bus import event_bus
+                        event_bus.publish_sync("alert", {"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_UP",
+                                                    "edge_score": edge, "action": action, "regime": regime,
+                                                    "mtf_alignment": mtf_alignment, "summary": summary})
                     except Exception:
                         pass
                     # Alert routing
@@ -724,7 +793,7 @@ def run_detection():
                     # Notification logic: Enter, Elite, or High-Conviction Avoid (Bearish Trap)
                     should_notify = (action == "ENTER") or (edge >= 8.0) or (action == "AVOID" and trap_conv > 0.7)
                     if should_notify:
-                        asyncio.run(notify_webhook({
+                        _run_async(notify_webhook({
                             "ticker": ticker_symbol,
                             "combo": combo,
                             "action": action,
@@ -760,12 +829,12 @@ def run_detection():
                     volatility_desc=volatility_desc,
                     regime=regime, action=action, summary=summary
                 )
-                # WebSocket push
+                # WebSocket push (via event bus instead of Flask current_app)
                 try:
-                    from flask import current_app
-                    current_app.emit_alert({"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_DOWN",
-                                            "edge_score": edge, "action": action, "regime": regime,
-                                            "mtf_alignment": mtf_alignment, "summary": summary})
+                    from services.event_bus import event_bus
+                    event_bus.publish_sync("alert", {"ticker": ticker_symbol, "signal_type": "VOLUME_SPIKE_DOWN",
+                                                "edge_score": edge, "action": action, "regime": regime,
+                                                "mtf_alignment": mtf_alignment, "summary": summary})
                 except Exception:
                     pass
                 # Alert routing
@@ -790,13 +859,17 @@ def run_backfill():
     tickers = ["TSLA", "AAPL", "NVDA", "BTC-USD", "SPY"]
 
     try:
-        spy_history = yf.Ticker("SPY").history(period="60d")
+        spy_history = _yf_ticker_history("SPY", "60d")
         regime = compute_regime_adaptive(spy_history)
-    except:
+    except Exception:
         regime = "UNKNOWN"
 
     for ticker_symbol in tickers:
-        history        = yf.Ticker(ticker_symbol).history(period="60d")
+        try:
+            history = _yf_ticker_history(ticker_symbol, "60d")
+        except Exception as e:
+            logger.warning(f"Skipping {ticker_symbol} during backfill: {e}")
+            continue
         average_volume = float(history["Volume"].mean())
         last_accum_date = None  # In-memory cooldown for backfill
 

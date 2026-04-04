@@ -148,27 +148,30 @@ class BacktestEngine:
 
     @staticmethod
     def _find_bar(prices: pd.DataFrame, target_date: str) -> dict[str, float] | None:
-        """Find the price bar closest to target_date."""
+        """Find the price bar strictly BEFORE target_date to prevent lookahead bias.
+
+        CRITICAL FIX: The signal at index i must only see data from index i-1 or earlier.
+        Using bars on or after the signal date introduces future data into the decision.
+        """
         try:
             if isinstance(prices.index, pd.DatetimeIndex):
-                mask = prices.index.date == pd.Timestamp(target_date).date()
-                matched = prices[mask]
-                if len(matched) > 0:
-                    bar = matched.iloc[0]
+                target = pd.Timestamp(target_date)
+                # STRICTLY use bars before the target date to prevent lookahead bias
+                # Signal generated at date T can only use data from T-1 or earlier
+                valid = prices[prices.index < target]
+                if len(valid) > 0:
+                    bar = valid.iloc[-1]
+                    # Assert that the bar date is strictly before the signal date
+                    assert bar.name < target, (
+                        f"Lookahead bias detected: bar date {bar.name} >= signal date {target}"
+                    )
                     return {
                         "Open": float(bar["Open"]),
                         "High": float(bar["High"]),
                         "Low": float(bar["Low"]),
                         "Close": float(bar["Close"]),
                     }
-            # Fallback: use last bar
-            bar = prices.iloc[-1]
-            return {
-                "Open": float(bar["Open"]),
-                "High": float(bar["High"]),
-                "Low": float(bar["Low"]),
-                "Close": float(bar["Close"]),
-            }
+            return None
         except Exception:
             return None
 

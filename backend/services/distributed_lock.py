@@ -75,8 +75,18 @@ class DistributedLock:
         else:
             return self._acquire_thread(blocking)
 
-    def release(self, owner_token: str = "") -> bool:
-        """Release the lock with owner validation."""
+    def release(self, owner_token: str) -> bool:
+        """Release the lock with mandatory owner validation.
+
+        Args:
+            owner_token: Token returned by acquire(). Required — empty strings rejected.
+
+        Returns:
+            True if lock was released, False if ownership validation failed.
+        """
+        if not owner_token:
+            logger.warning("Lock release rejected: empty owner token for %s", self.name)
+            return False
         if self._redis is not None:
             return self._release_redis(owner_token)
         else:

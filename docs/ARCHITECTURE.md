@@ -37,6 +37,35 @@ Outcome Evaluation & Analysis (analyze_traps.py)
 
 ---
 
+## 🔄 Polling Mode (Cost-Optimized)
+
+Vigil supports a **polling-based architecture** as an alternative to real-time WebSocket connections. This is ideal for:
+- Free-tier deployments (Render, Railway, Vercel) where WebSocket connections are limited
+- Reducing server resource consumption
+- Simpler deployment without WebSocket infrastructure
+
+### Feature Flags
+
+| Environment Variable | Default | Effect |
+|---------------------|---------|--------|
+| `REALTIME_ENABLED=false` | `true` | Disables WebSocket endpoint (returns close code 1008) |
+| `SCHEDULER_ENABLED=false` | `true` | Disables APScheduler (no automatic daily scans) |
+| `POLLING_MODE=true` | `false` | Enables polling-optimized backend behavior |
+
+### How Polling Works
+
+1. Frontend polls `GET /alerts?since=<timestamp>` every 15 seconds
+2. Backend returns only alerts created after the `since` timestamp
+3. Frontend merges new alerts into the existing list
+4. Manual detection triggered via `POST /trigger` (requires API key)
+5. System status available at `GET /health/polling-status`
+
+### Migration Guide
+
+See [POLLING_MIGRATION_PLAN.md](./POLLING_MIGRATION_PLAN.md) for detailed implementation.
+
+---
+
 ## 🔄 The Closed-Loop System
 
 ### Daily Cycle (Automated at 21:00 ET)

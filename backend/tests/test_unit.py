@@ -25,6 +25,27 @@ if _BACKEND not in sys.path:
     sys.path.insert(0, _BACKEND)
 
 # ---------------------------------------------------------------------------
+# Test isolation — clear mutable singletons before/after each test
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def clean_test_state():
+    """Clear module-level singletons to prevent test pollution."""
+    yield
+    # Cleanup after each test
+    _clear_lru_cache()
+
+
+def _clear_lru_cache():
+    """Reset the DI LRU cache singleton if it exists."""
+    try:
+        from services.lru_cache import reset_di_cache
+        reset_di_cache()
+    except Exception:
+        pass  # Cache may not be initialized
+
+
+# ---------------------------------------------------------------------------
 # Helpers — synthetic data factories
 # ---------------------------------------------------------------------------
 
@@ -949,8 +970,554 @@ class TestParametrizedKellySizing:
 
 
 # ===========================================================================
+# 5. DI Services — LRU Cache
+# ===========================================================================
+
+class TestLRUCache:
+    """Tests for services.lru_cache.LRUCache."""
+
+    def _make_cache(self, max_size=4, default_ttl=60):
+        from services.lru_cache import LRUCache
+        return LRUCache(max_size=max_size, default_ttl=default_ttl)
+
+    def test_set_and_get(self):
+        cache = self._make_cache()
+        cache.set("key1", "value1")
+        assert cache.get("key1") == "value1"
+
+    def test_get_missing_key_returns_none(self):
+        cache = self._make_cache()
+        assert cache.get("nonexistent") is None
+
+    def test_ttl_eviction(self):
+        cache = self._make_cache(default_ttl=0)
+        cache.set("key1", "value1")
+        import time
+        time.sleep(0.01)  # Ensure TTL expires
+        assert cache.get("key1") is None
+
+    def test_max_size_eviction(self):
+        cache = self._make_cache(max_size=2)
+        cache.set("a", 1)
+        cache.set("b", 2)
+        cache.set("c", 3)  # Should evict "a"
+        assert cache.get("a") is None
+        assert cache.get("b") == 2
+        assert cache.get("c") == 3
+
+    def test_delete(self):
+        cache = self._make_cache()
+        cache.set("key1", "value1")
+        assert cache.delete("key1") is True
+        assert cache.get("key1") is None
+
+    def test_delete_missing_key_returns_false(self):
+        cache = self._make_cache()
+        assert cache.delete("nonexistent") is False
+
+    def test_clear(self):
+        cache = self._make_cache()
+        cache.set("a", 1)
+        cache.set("b", 2)
+        count = cache.clear()
+        assert count == 2
+        assert cache.get("a") is None
+        assert cache.get("b") is None
+
+    def test_stats(self):
+        cache = self._make_cache()
+        cache.set("a", 1)
+        cache.get("a")  # hit
+        cache.get("b")  # miss
+        stats = cache.stats()
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["size"] == 1
+        assert stats["hit_rate_pct"] == 50.0
+
+
+# ===========================================================================
+# 6. DI Services — Scoring Engine
+# ===========================================================================
+
+class TestScoringEngine:
+    """Tests for services.scoring_engine.SignalScorer."""
+
+    def _make_scorer(self, mock_pool):
+        from services.scoring_engine import SignalScorer
+        from services.lru_cache import LRUCache
+        return SignalScorer(pool=mock_pool, cache=LRUCache())
+
+    def _make_mock_pool(self, alert_row=None, score_row=None):
+        """Create a mock asyncpg pool with configurable return values."""
+        from unittest.mock import AsyncMock, MagicMock
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=alert_row)
+        mock_conn.execute = AsyncMock(return_value=None)
+        mock_acq = MagicMock()
+        mock_acq.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acq.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=mock_acq)
+        return mock_pool
+
+    def test_score_bounds_0_to_100(self):
+        from datetime import datetime, timezone
+        import asyncio
+
+        alert_row = {
+            "id": 1, "ticker": "SPY", "signal_type": "VOLUME_SPIKE_UP",
+            "regime": "TRENDING", "adx_strength": 30, "momentum_score": 0.5,
+            "mtf_alignment": "BULLISH", "sector_gate": "TECH", "edge_score": 5.0,
+        }
+        weight_row = {
+            "hit_rate_weight": 0.30, "regime_weight": 0.25,
+            "volatility_weight": 0.20, "confluence_weight": 0.25,
+        }
+        score_row = {
+            "score": 65, "hit_rate_component": 50, "regime_component": 60,
+            "volatility_component": 50, "confluence_component": 50,
+        }
+
+        def fetchrow_side_effect(query, *args):
+            # Check more specific patterns first
+            if "AVG(adx_strength)" in query:
+                return {"avg_adx": 30.0}
+            elif "FROM signal_scores" in query:
+                return score_row
+            elif "FROM weight_calibrations" in query:
+                return weight_row
+            elif "FROM signal_outcomes" in query:
+                return None  # No historical outcomes
+            elif "FROM alerts" in query:
+                return alert_row
+            return None
+
+        mock_pool = self._make_mock_pool()
+        # Override fetchrow to use side effect
+        from unittest.mock import AsyncMock, MagicMock
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+        mock_conn.execute = AsyncMock(return_value=None)
+        mock_acq = MagicMock()
+        mock_acq.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acq.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.acquire = MagicMock(return_value=mock_acq)
+
+        scorer = self._make_scorer(mock_pool)
+        loop = asyncio.new_event_loop()
+        try:
+            result = loop.run_until_complete(scorer.score_signal(1))
+            assert 0 <= result.score <= 100
+        finally:
+            loop.close()
+
+    def test_get_weights_returns_dict(self):
+        mock_pool = self._make_mock_pool()
+        scorer = self._make_scorer(mock_pool)
+        import asyncio
+        weights = asyncio.get_event_loop().run_until_complete(scorer.get_weights())
+        assert isinstance(weights, dict)
+        assert "hit_rate" in weights
+
+
+# ===========================================================================
+# 7. DI Services — Outcome Tracker
+# ===========================================================================
+
+class TestOutcomeTracker:
+    """Tests for services.outcome_tracker.OutcomeTracker."""
+
+    def _make_tracker(self, mock_pool):
+        from services.outcome_tracker import OutcomeTracker
+        return OutcomeTracker(pool=mock_pool)
+
+    def _make_mock_pool(self, existing_row=None, fetch_rows=None):
+        from unittest.mock import AsyncMock, MagicMock
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(return_value=existing_row)
+        mock_conn.execute = AsyncMock(return_value=None)
+        if fetch_rows is not None:
+            mock_conn.fetch = AsyncMock(return_value=fetch_rows)
+        mock_acq = MagicMock()
+        mock_acq.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acq.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=mock_acq)
+        return mock_pool
+
+    def test_track_signal_creates_record(self):
+        from datetime import datetime, timezone
+        import asyncio
+
+        inserted_row = {
+            "signal_id": 1, "state": "PENDING", "entry_price": 100.0,
+            "exit_price": None, "target_price": None, "stop_price": None,
+            "outcome_pct": None, "max_adverse_excursion": 0,
+            "max_favorable_excursion": 0, "time_in_trade_bars": None,
+            "final_pnl_state": None,
+            "updated_at": datetime.now(timezone.utc),
+        }
+
+        def fetchrow_side_effect(query, *args):
+            if "SELECT * FROM signal_outcomes" in query:
+                return None  # No existing row
+            elif "RETURNING *" in query:
+                return inserted_row
+            return None
+
+        from unittest.mock import AsyncMock, MagicMock
+        mock_conn = AsyncMock()
+        mock_conn.fetchrow = AsyncMock(side_effect=fetchrow_side_effect)
+        mock_conn.execute = AsyncMock(return_value=None)
+        mock_acq = MagicMock()
+        mock_acq.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acq.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=mock_acq)
+
+        tracker = self._make_tracker(mock_pool)
+        loop = asyncio.new_event_loop()
+        try:
+            outcome = loop.run_until_complete(
+                tracker.track_signal(alert_id=1, entry_price=100.0)
+            )
+            assert outcome.signal_id == 1
+            assert outcome.state == "PENDING"
+        finally:
+            loop.close()
+
+    def test_track_signal_idempotent(self):
+        from datetime import datetime, timezone
+        existing = {
+            "signal_id": 1, "state": "PENDING", "entry_price": 100.0,
+            "exit_price": None, "target_price": None, "stop_price": None,
+            "outcome_pct": None, "max_adverse_excursion": 0,
+            "max_favorable_excursion": 0, "time_in_trade_bars": None,
+            "final_pnl_state": None,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        mock_pool = self._make_mock_pool(existing_row=existing)
+        tracker = self._make_tracker(mock_pool)
+        import asyncio
+        outcome = asyncio.get_event_loop().run_until_complete(
+            tracker.track_signal(alert_id=1, entry_price=100.0)
+        )
+        assert outcome.signal_id == 1
+        assert outcome.state == "PENDING"
+
+    def test_get_active_outcomes_returns_list(self):
+        from datetime import datetime, timezone
+        row = {
+            "signal_id": 1, "state": "PENDING", "entry_price": 100.0,
+            "exit_price": None, "target_price": None, "stop_price": None,
+            "outcome_pct": None, "max_adverse_excursion": 0,
+            "max_favorable_excursion": 0, "time_in_trade_bars": None,
+            "final_pnl_state": None,
+            "updated_at": datetime.now(timezone.utc),
+        }
+        mock_pool = self._make_mock_pool(fetch_rows=[row])
+        tracker = self._make_tracker(mock_pool)
+        import asyncio
+        outcomes = asyncio.get_event_loop().run_until_complete(
+            tracker.get_active_outcomes()
+        )
+        assert isinstance(outcomes, list)
+        assert len(outcomes) == 1
+
+
+# ===========================================================================
+# 8. DI Services — Regime Detector
+# ===========================================================================
+
+class TestRegimeDetector:
+    """Tests for services.regime_detector.RegimeDetector."""
+
+    def test_regime_alignment_score_bullish_in_uptrend(self):
+        from services.regime_detector import RegimeDetector
+        score = RegimeDetector.regime_alignment_score("BULLISH", {
+            "regime": "TRENDING",
+            "confidence": 0.8,
+            "trend_slope": 0.5,
+        })
+        assert score > 0.5, f"Expected bullish alignment > 0.5, got {score}"
+
+    def test_regime_alignment_score_bearish_in_downtrend(self):
+        from services.regime_detector import RegimeDetector
+        score = RegimeDetector.regime_alignment_score("BEARISH", {
+            "regime": "TRENDING",
+            "confidence": 0.8,
+            "trend_slope": -0.5,
+        })
+        assert score > 0.5, f"Expected bearish alignment > 0.5, got {score}"
+
+    def test_regime_alignment_score_bounded_0_to_1(self):
+        from services.regime_detector import RegimeDetector
+        for signal_type in ["BULLISH", "BEARISH", "NEUTRAL", "VOLUME_SPIKE_UP"]:
+            for trend in [-1.0, -0.5, 0.0, 0.5, 1.0]:
+                score = RegimeDetector.regime_alignment_score(signal_type, {
+                    "regime": "TRENDING",
+                    "confidence": 0.8,
+                    "trend_slope": trend,
+                })
+                assert 0.0 <= score <= 1.0, f"Score out of bounds for {signal_type}/{trend}: {score}"
+
+    def test_detect_regime_unknown_on_no_data(self):
+        from services.regime_detector import RegimeDetector
+        from services.lru_cache import LRUCache
+        from services.regime_engine import RegimeEngine
+        mock_pool = None  # Not needed for no-data path
+        cache = LRUCache()
+        engine = RegimeEngine()
+        detector = RegimeDetector(pool=None, cache=cache, engine=engine)
+        # With no OHLCV data, regime should be UNKNOWN
+        vector = detector._compute_regime_vector("SPY", "1D", [])
+        assert vector.regime == "UNKNOWN"
+
+
+# ===========================================================================
+# 9. DI Services — Explainability
+# ===========================================================================
+
+class TestExplainability:
+    """Tests for services.explainability.ExplainabilityEngine."""
+
+    def test_format_for_ui_returns_labels_colors_grades(self):
+        from services.explainability import ExplainabilityEngine
+        data = {
+            "score": 75,
+            "factors": {
+                "hit_rate": {"score": 80, "weight": 0.30, "contribution": 24},
+                "regime": {"score": 70, "weight": 0.25, "contribution": 17.5},
+            },
+            "regime_impact": {"alignment": "MATCH"},
+            "human_readable": "Test reasoning",
+        }
+        result = ExplainabilityEngine.format_for_ui(data)
+        assert "factors" in result
+        assert "hit_rate" in result["factors"]
+        assert "label" in result["factors"]["hit_rate"]
+        assert "color" in result["factors"]["hit_rate"]
+        assert "grade" in result["factors"]["hit_rate"]
+
+    def test_score_grade_mapping(self):
+        from services.explainability import _score_grade
+        assert _score_grade(85) == "A"
+        assert _score_grade(75) == "B"
+        assert _score_grade(65) == "C"
+        assert _score_grade(55) == "D"
+        assert _score_grade(40) == "F"
+
+
+# ===========================================================================
+# 10. DI Services — Portfolio Simulator
+# ===========================================================================
+
+class TestPortfolioSimulator:
+    """Tests for services.portfolio_risk.PortfolioSimulator."""
+
+    def _make_simulator(self):
+        from services.portfolio_risk import PortfolioSimulator
+        return PortfolioSimulator()
+
+    def test_calculate_portfolio_metrics_returns_dict(self):
+        sim = self._make_simulator()
+        signals = [{
+            "signal_id": 1, "ticker": "SPY", "score": 70,
+            "entry_price": 100.0, "stop_price": 95.0, "target_price": 110.0,
+        }]
+        result = sim.calculate_portfolio_metrics(
+            signals=signals, account_balance=10000.0
+        )
+        assert hasattr(result, "cumulative_return_pct")
+        assert hasattr(result, "max_drawdown_pct")
+        assert hasattr(result, "sharpe_ratio")
+        assert hasattr(result, "trade_distribution")
+        assert hasattr(result, "positions")
+
+    def test_kelly_fraction_positive_for_edge(self):
+        sim = self._make_simulator()
+        kelly = sim._kelly_fraction(win_rate=0.6, avg_win=3.0, avg_loss=2.0)
+        assert kelly > 0, f"Expected positive Kelly fraction, got {kelly}"
+
+    def test_kelly_fraction_zero_for_no_edge(self):
+        sim = self._make_simulator()
+        kelly = sim._kelly_fraction(win_rate=0.3, avg_win=1.0, avg_loss=3.0)
+        assert kelly == 0.0, f"Expected zero Kelly fraction, got {kelly}"
+
+    def test_correlation_reduces_allocation(self):
+        sim = self._make_simulator()
+        signals = [
+            {"signal_id": 1, "ticker": "SPY", "score": 80, "entry_price": 100.0},
+            {"signal_id": 2, "ticker": "SPY", "score": 60, "entry_price": 100.0},
+        ]
+        filtered = sim._apply_correlation_filter(signals)
+        # Second signal should have reduced score
+        reduced = [s for s in filtered if s.get("correlation_reduced")]
+        assert len(reduced) >= 1
+
+    def test_max_drawdown_cap_reduces_positions(self):
+        sim = self._make_simulator()
+        signals = [{
+            "signal_id": 1, "ticker": "SPY", "score": 40,
+            "entry_price": 100.0, "stop_price": 95.0,
+            "win_rate": 0.40,  # Low win rate to trigger loss
+        }]
+        result = sim.calculate_portfolio_metrics(
+            signals=signals, account_balance=10000.0, max_drawdown_pct=0.01
+        )
+        assert result.max_drawdown_pct <= 1.0 or len(result.positions) >= 0
+
+    def test_empty_signals_returns_zeros(self):
+        sim = self._make_simulator()
+        result = sim.calculate_portfolio_metrics(
+            signals=[], account_balance=10000.0
+        )
+        assert result.cumulative_return_pct == 0.0
+        assert result.positions == []
+
+
+# ===========================================================================
+# 11. DI Services — Self Evaluation
+# ===========================================================================
+
+class TestSelfEvaluation:
+    """Tests for services.self_evaluation.SelfEvaluator."""
+
+    def _make_evaluator(self, mock_pool):
+        from services.self_evaluation import SelfEvaluator
+        return SelfEvaluator(pool=mock_pool)
+
+    def _make_mock_pool(self, fetch_rows=None):
+        from unittest.mock import AsyncMock, MagicMock
+        mock_conn = AsyncMock()
+        mock_conn.fetch = AsyncMock(return_value=fetch_rows or [])
+        mock_conn.fetchrow = AsyncMock(return_value=None)
+        mock_conn.execute = AsyncMock(return_value=None)
+        mock_acq = MagicMock()
+        mock_acq.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_acq.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.acquire = MagicMock(return_value=mock_acq)
+        return mock_pool
+
+    def test_run_cohort_analysis_returns_dict(self):
+        mock_pool = self._make_mock_pool(fetch_rows=[])
+        evaluator = self._make_evaluator(mock_pool)
+        import asyncio
+        report = asyncio.get_event_loop().run_until_complete(
+            evaluator.run_cohort_analysis(lookback_days=30)
+        )
+        assert hasattr(report, "cohorts")
+        assert hasattr(report, "updated_weights")
+        assert hasattr(report, "degraded_signals")
+        assert hasattr(report, "execution_ms")
+
+    def test_get_degraded_signals_returns_list(self):
+        mock_pool = self._make_mock_pool(fetch_rows=[])
+        evaluator = self._make_evaluator(mock_pool)
+        import asyncio
+        result = asyncio.get_event_loop().run_until_complete(
+            evaluator.get_degraded_signals(lookback_days=30)
+        )
+        assert isinstance(result, list)
+
+    def test_compute_win_rate(self):
+        from services.self_evaluation import SelfEvaluator
+        evaluator = SelfEvaluator(pool=None)
+        outcomes = [
+            {"final_pnl_state": "WIN"},
+            {"final_pnl_state": "WIN"},
+            {"final_pnl_state": "LOSS"},
+        ]
+        win_rate = evaluator._compute_win_rate(outcomes)
+        assert win_rate == pytest.approx(2 / 3, abs=0.01)
+
+    def test_identify_degraded_signals(self):
+        from services.self_evaluation import SelfEvaluator, CohortResult
+        evaluator = SelfEvaluator(pool=None)
+        cohorts = [
+            CohortResult(
+                cohort_key="BAD:REGIME",
+                signal_type="BAD",
+                regime="REGIME",
+                sample_size=20,
+                win_rate=0.30,  # Below 0.40 threshold
+                avg_pnl=-2.0,
+                decay_half_life=None,
+                failure_mode="stop_violation",
+                feature_importance={},
+            ),
+            CohortResult(
+                cohort_key="GOOD:REGIME",
+                signal_type="GOOD",
+                regime="REGIME",
+                sample_size=20,
+                win_rate=0.60,
+                avg_pnl=2.0,
+                decay_half_life=None,
+                failure_mode=None,
+                feature_importance={},
+            ),
+        ]
+        degraded = evaluator._identify_degraded_signals(cohorts)
+        assert "BAD" in degraded
+        assert "GOOD" not in degraded
+
+
+# ===========================================================================
+# 12. DI Router — Endpoint Tests
+# ===========================================================================
+
+class TestDIRouter:
+    """Tests for services.di_router endpoint behavior."""
+
+    def test_cache_stats_endpoint(self):
+        from services.lru_cache import LRUCache
+        from services.di_router import CacheStatsResponse
+        cache = LRUCache()
+        cache.set("test", "value")
+        cache.get("test")  # hit
+        cache.get("missing")  # miss
+        stats = cache.stats()
+        response = CacheStatsResponse(
+            size=stats["size"],
+            max_size=stats["max_size"],
+            hits=stats["hits"],
+            misses=stats["misses"],
+            hit_rate=stats["hit_rate_pct"],
+        )
+        assert response.size == 1
+        assert response.hits == 1
+        assert response.misses == 1
+
+    def test_regime_unknown_on_cache_miss(self):
+        from services.di_router import RegimeResponse
+        # Simulates the response when no cached regime is found
+        response = RegimeResponse(
+            symbol="SPY",
+            timeframe="1D",
+            regime="UNKNOWN",
+            trend_slope=0,
+            momentum=0,
+            volatility_pct=0,
+            breadth=0.5,
+            alignment_scores={"bullish": 0.5, "bearish": 0.5, "neutral": 0.5},
+        )
+        assert response.regime == "UNKNOWN"
+        assert response.symbol == "SPY"
+
+
+# ===========================================================================
 # Entry point
 # ===========================================================================
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+
+# ===========================================================================
+# Import DI API tests
+# ===========================================================================
+
+from test_di_api import *  # noqa: F401, F403

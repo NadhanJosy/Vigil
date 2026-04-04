@@ -105,6 +105,10 @@ def get_conn():
     """
     Legacy psycopg2 connection from pool. Kept for backward compatibility.
 
+    FIX 4: Dual-pool database inconsistency — this function now uses AUTOCOMMIT
+    isolation level to ensure it always sees the latest committed data from
+    asyncpg writes. All NEW code should use asyncpg via get_pool().
+
     DEPRECATED: Prefer asyncpg get_pool() for new code.
     This function emits a one-time deprecation warning on first use.
     """
@@ -120,14 +124,20 @@ def get_conn():
         with _pool_lock:
             if _pool is None:  # Double-check after acquiring lock
                 try:
-                    # Create a pool with 1 min and 10 max connections
+                    # FIX 4: Create pool with AUTOCOMMIT to ensure visibility
+                    # of asyncpg writes. This prevents stale reads from a
+                    # separate transaction context.
                     _pool = psycopg2_pool.ThreadedConnectionPool(1, 10, db_url)
-                    logger.info("Database connection pool initialized")
+                    logger.info("Database connection pool initialized (legacy psycopg2)")
                 except Exception as e:
                     logger.error(f"Failed to initialize connection pool: {e}")
-                    return psycopg2.connect(db_url)
+                    conn = psycopg2.connect(db_url)
+                    conn.autocommit = True  # FIX 4: Ensure visibility of asyncpg writes
+                    return conn
 
-    return _pool.getconn()
+    conn = _pool.getconn()
+    conn.autocommit = True  # FIX 4: Ensure this connection sees latest committed data
+    return conn
 
 
 @contextmanager
@@ -196,6 +206,9 @@ async def get_pool() -> asyncpg.Pool:
     """
     Get or create the asyncpg connection pool for Neon PostgreSQL.
 
+    This is the ONLY database entry point. The legacy psycopg2 pool
+    (get_conn/get_db_cursor) is deprecated and must not be used.
+
     Configuration:
     - min_size=5, max_size=20 connections
     - 30s connection timeout (handles Neon wake-up)
@@ -229,8 +242,12 @@ async def get_pool() -> asyncpg.Pool:
                         },
                     )
 
-                _async_pool = await _retry_on_disconnect(_create_pool)
-                logger.info("asyncpg connection pool initialized successfully")
+                try:
+                    _async_pool = await _retry_on_disconnect(_create_pool)
+                    logger.info("asyncpg connection pool initialized successfully")
+                except Exception as e:
+                    logger.error(f"Failed to initialize asyncpg pool: {e}")
+                    raise
 
     return _async_pool
 
@@ -482,7 +499,7 @@ def save_alert(ticker, date, volume_ratio, change_pct, signal_type, state,
         ))
 
 
-def get_alerts(ticker=None, signal_type=None, state=None, limit=50, offset=0):
+def get_alerts(ticker=None, signal_type=None, state=None, since=None, limit=50, offset=0):
     with get_db_cursor() as cursor:
         query = """
             SELECT *
@@ -499,6 +516,10 @@ def get_alerts(ticker=None, signal_type=None, state=None, limit=50, offset=0):
         if state:
             filters.append("state = %s")
             params.append(state.upper())
+        if since:
+            # Support both ISO 8601 string and datetime object
+            filters.append("created_at > %s")
+            params.append(since)
 
         if filters:
             query += " WHERE " + " AND ".join(filters)

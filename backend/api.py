@@ -20,7 +20,7 @@ from database import (
     get_alerts, get_watchlist, add_to_watchlist, remove_from_watchlist,
     get_system_metrics, save_backtest_run, save_backtest_results,
     get_backtest_runs, get_backtest_results, get_latest_correlation,
-    save_correlation_matrix, init_db, get_pool, close_pool
+    save_correlation_matrix, init_db, get_pool, close_pool, get_latest_regime,
 )
 from data import run_detection, run_backfill
 from services.regime_engine import compute_regime_adaptive
@@ -39,6 +39,8 @@ from services.observability import (
 from services.event_bus import event_bus
 from services.ws_manager import ws_manager
 from services.distributed_lock import DistributedLock
+from services.feature_flags import is_realtime_enabled, is_scheduler_enabled, is_polling_mode
+from services.di_router import di_router
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,60 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(PrometheusMiddleware)
 app.add_middleware(LoggingMiddleware)
 app.include_router(health_router)
+app.include_router(di_router)
+
+
+# --- Global Exception Handler (Standardized Error Responses) ---
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Format HTTPException errors using the standardized APIError model."""
+    from models import APIError
+
+    # Check if detail is already in standardized format
+    if isinstance(exc.detail, dict) and "code" in exc.detail:
+        error = APIError(
+            code=exc.detail["code"],
+            message=exc.detail.get("message", exc.detail.get("detail", "")),
+            details=exc.detail.get("details"),
+            path=request.url.path,
+        )
+    else:
+        # Convert plain string detail to standardized format
+        message = exc.detail if isinstance(exc.detail, str) else "An error occurred"
+        code = "INTERNAL_ERROR" if exc.status_code >= 500 else "VALIDATION_ERROR"
+        error = APIError(
+            code=code,
+            message=message,
+            path=request.url.path,
+        )
+
+    return Response(
+        content=error.model_dump_json(),
+        status_code=exc.status_code,
+        media_type="application/json",
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch-all handler for unhandled exceptions."""
+    from models import APIError
+
+    logger.exception(f"Unhandled exception in request {request.url.path}: {exc}")
+
+    error = APIError(
+        code="INTERNAL_ERROR",
+        message="An unexpected error occurred",
+        details={"error_type": type(exc).__name__},
+        path=request.url.path,
+    )
+
+    return Response(
+        content=error.model_dump_json(),
+        status_code=500,
+        media_type="application/json",
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -152,7 +208,7 @@ scheduler = AsyncIOScheduler()
 async def startup_event():
     """
     Initializes database infrastructure, connection pool, and starts background tasks.
-    Includes a 'Keep-Warm' job to prevent free-tier spin-down.
+    Scheduler and WebSocket are conditionally started based on feature flags.
     """
     # Initialize legacy psycopg2 tables (backward compatibility)
     await run_in_threadpool(init_db)
@@ -164,20 +220,32 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to initialize asyncpg pool: {e}")
 
-    # 1. Main Market Scan (distributed lock prevents duplicate runs across instances)
-    scheduler.add_job(
-        with_distributed_lock("detection", ttl=600)(run_detection),
-        "cron",
-        hour=21,
-        minute=0,
-        timezone="America/New_York",
+    # Conditionally start scheduler
+    if is_scheduler_enabled():
+        # 1. Main Market Scan (distributed lock prevents duplicate runs across instances)
+        scheduler.add_job(
+            with_distributed_lock("detection", ttl=600)(run_detection),
+            "cron",
+            hour=21,
+            minute=0,
+            timezone="America/New_York",
+        )
+
+        # 2. Keep-Warm Heartbeat (Pings every 10 mins to prevent Render/Neon sleep)
+        # _get_system_stats already has @with_distributed_lock decorator
+        scheduler.add_job(_get_system_stats, "interval", minutes=10)
+
+        scheduler.start()
+        logger.info("APScheduler started (scheduled jobs active)")
+    else:
+        logger.info("APScheduler disabled (SCHEDULER_ENABLED=false) — use POST /trigger for manual detection")
+
+    # Log feature flag state
+    logger.info(
+        f"Feature flags: REALTIME_ENABLED={is_realtime_enabled()}, "
+        f"SCHEDULER_ENABLED={is_scheduler_enabled()}, "
+        f"POLLING_MODE={is_polling_mode()}"
     )
-
-    # 2. Keep-Warm Heartbeat (Pings every 10 mins to prevent Render/Neon sleep)
-    # _get_system_stats already has @with_distributed_lock decorator
-    scheduler.add_job(_get_system_stats, "interval", minutes=10)
-
-    scheduler.start()
 
 
 @app.on_event("shutdown")
@@ -222,9 +290,13 @@ async def verify_api_key(api_key: str = Header(..., alias="X-API-KEY")):
 async def websocket_endpoint(websocket: WebSocket):
     """
     WebSocket endpoint for real-time push of alerts, signals, and regime changes.
-    Accepts connections without authentication (can be hardened later).
-    Forwards events from the event bus to connected clients.
+    Disabled when REALTIME_ENABLED=false — returns close code 1008.
     """
+    if not is_realtime_enabled():
+        await websocket.accept()
+        await websocket.close(code=1008, reason="Real-time WebSocket is disabled (polling mode active)")
+        return
+
     import uuid
 
     connection_id = str(uuid.uuid4())
@@ -274,11 +346,12 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/alerts", response_model=List[AlertResponse])
 async def fetch_alerts(
     ticker: Optional[str] = None,
+    since: Optional[str] = Query(None, description="ISO 8601 timestamp — only return alerts created after this time"),
     limit: int = Query(50, gt=0, le=500),
     offset: int = 0
 ):
-    """Fetch and enrich alerts with decay logic."""
-    raw_data = get_alerts(ticker=ticker, limit=limit, offset=offset)
+    """Fetch and enrich alerts with decay logic. Supports incremental polling via `since` parameter."""
+    raw_data = get_alerts(ticker=ticker, limit=limit, offset=offset, since=since)
     
     # Column mapping - ideally get_alerts should return a list of dicts
     # Here we map based on the 31-column schema from database.py
@@ -327,6 +400,23 @@ def _get_system_stats():
 @app.get("/stats")
 async def system_stats():
     return _get_system_stats()
+
+
+@app.get("/health/polling-status")
+async def polling_status():
+    """
+    Returns feature flag state and last detection run info for polling clients.
+    """
+    recent_alerts = get_alerts(limit=1)
+    last_run = recent_alerts[0]['created_at'].isoformat() if recent_alerts else None
+
+    return {
+        "realtime_enabled": is_realtime_enabled(),
+        "scheduler_enabled": is_scheduler_enabled(),
+        "polling_mode": is_polling_mode(),
+        "last_detection_run": last_run,
+        "regime": get_latest_regime(),
+    }
 
 @app.post("/backtest/run")
 async def run_backtest_task(req: BacktestRequest, background_tasks: BackgroundTasks, api_key: str = Depends(verify_api_key)):
@@ -430,24 +520,35 @@ async def delete_from_watchlist(ticker: str, api_key: str = Depends(verify_api_k
 
 # --- Missing Endpoints ---
 
-@app.post("/trigger")
+@app.post("/trigger", response_model=None)
 async def trigger_detection(
+    background_tasks: BackgroundTasks,
     req: Optional[TriggerRequest] = None,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     api_key: str = Depends(verify_api_key),
 ):
     """
     Manual signal trigger endpoint.
     Triggers the market detection run immediately.
     """
+    if not is_scheduler_enabled():
+        logger.info("Manual detection triggered (scheduler disabled)")
+
     background_tasks.add_task(run_detection)
-    return {"status": "detection_triggered", "message": "Detection run scheduled"}
+
+    trigger_time = datetime.now(timezone.utc).isoformat()
+
+    return {
+        "status": "detection_triggered",
+        "message": "Detection run scheduled",
+        "triggered_at": trigger_time,
+        "poll_after_seconds": 30,
+    }
 
 
-@app.post("/backfill")
+@app.post("/backfill", response_model=None)
 async def trigger_backfill(
+    background_tasks: BackgroundTasks,
     req: Optional[BackfillRequest] = None,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     api_key: str = Depends(verify_api_key),
 ):
     """
