@@ -124,6 +124,28 @@ app = FastAPI(
     version="2.0.0"
 )
 
+
+@app.get("/")
+async def root():
+    """Root endpoint — provides API discovery information."""
+    return {
+        "name": "Vigil Quant API",
+        "version": "2.0.0",
+        "description": "Institutional-grade market surveillance engine",
+        "docs": "/docs",
+        "health": "/health",
+        "endpoints": {
+            "alerts": "/alerts",
+            "watchlist": "/watchlist",
+            "signals": "/signals",
+            "backtest": "/backtest",
+            "correlation": "/correlation",
+            "regime": "/regime",
+            "di": "/di",
+        },
+        "status": "running"
+    }
+
 # --- Observability & Logging ---
 configure_structured_logging()
 
