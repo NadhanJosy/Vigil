@@ -22,12 +22,13 @@ COPY backend/ .
 RUN useradd -m vigil && chown -R vigil:vigil /app
 USER vigil
 
-# Expose port
-EXPOSE 8000
+# Expose port (use PORT env variable from Railway)
+ENV PORT=8000
+EXPOSE ${PORT}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -f http://localhost:${PORT}/health || exit 1
 
-# Run with uvicorn
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Run with uvicorn (use PORT env variable for Railway compatibility)
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port $PORT --workers 1"]
